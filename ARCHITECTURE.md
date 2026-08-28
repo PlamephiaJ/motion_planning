@@ -103,8 +103,10 @@ waypoints cannot be used accidentally.
 YAML. Set `launch.vehicle_mode` to `1` to launch only the first enabled vehicle,
 or to `2` to launch the first two. It starts a separate `rrt_node_sim` process for
 each selected car. The parameters under `rrt_node.ros__parameters` are shared
-by all instances, while each vehicle's `ros__parameters` override its TF
-frames, odometry-state, scan, drive, dynamic-map, and control topics.
+by all instances, while each vehicle's `ros__parameters` override its waypoint
+file, TF frames, odometry-state, scan, drive, dynamic-map, and control topics.
+The command-line `waypoint_file` argument remains a global override and replaces
+the configured waypoint file for every launched vehicle.
 
 The shipped `config/rrt_sim.yaml` connects the two default gym agents as follows:
 

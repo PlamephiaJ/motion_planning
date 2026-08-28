@@ -15,6 +15,9 @@ launch:
         drive_topic: /drive
         control_topic: /ego_racecar/control
 
+        # Each vehicle may follow a different reference path.
+        waypoint_file_path: /home/plamephia/workspace/sim_ws/waypoint/Spielberg_map/Spielberg_clockwise_20260828_103001.csv
+
         # Simulator localization is consumed through the same TF interface.
         map_frame: map
         laser_frame: ego_racecar/laser
@@ -37,6 +40,9 @@ launch:
         drive_topic: /opp_drive
         control_topic: /opp_racecar/control
 
+        # Set this independently from the ego vehicle when needed.
+        waypoint_file_path: /home/plamephia/workspace/sim_ws/waypoint/Spielberg_map/filtered.csv
+
         # Simulator localization is consumed through the same TF interface.
         map_frame: map
         laser_frame: opp_racecar/laser
@@ -54,14 +60,10 @@ rrt_node:
     fleet_control_topic: /rrt/control
     start_on_launch: false
 
-    # Preserve the simulator waypoint source used before this split. Pass
-    # waypoint_file:=/absolute/path.csv when running on another workstation.
-    waypoint_file_path: /home/plamephia/workspace/sim_ws/waypoint/Spielberg_map/filtered.csv
-
     # Vehicle/perception geometry and controller tuning.
     MARGIN: 0.2
     DISTANCE_GOAL_AHEAD: 3.5
-    SCAN_RANGE: 4.0
+    SCAN_RANGE: 6.0
     DETECTED_OBS_MARGIN: 0.22
     DISTANCE_LOOK_AHEAD: 0.8
     PID_P: 0.25
