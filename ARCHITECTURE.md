@@ -145,11 +145,13 @@ Controller selection is independent:
 - `BLOCKED_PATH_SPEED_LIMITER_ENABLED` controls the existing LiDAR-only safety
   cap. It is enabled by default.
 
-The shipped defaults select `legacy_pure_pursuit`, `steering_band`, curvature
-limiting off, and blocked-path limiting on, so reverting to the established
-controller behavior is a configuration-only operation. For legacy speed-band
-operation an `x,y` CSV remains accepted; its internal nominal-speed entries are
-filled with `SPEED_STRAIGHT` solely to preserve the paired-path invariant.
+The shipped defaults select the newly integrated `pure_pursuit`, `trajectory`,
+curvature limiting on, and blocked-path limiting on. Reverting to the previous
+behavior remains a configuration-only operation: select
+`legacy_pure_pursuit`, `steering_band`, and disable curvature limiting. For
+legacy speed-band operation an `x,y` CSV remains accepted; its internal
+nominal-speed entries are filled with `SPEED_STRAIGHT` solely to preserve the
+paired-path invariant.
 
 Each vehicle also has an RGB `VISUALIZATION_PRIMARY_COLOR` for its path, goal,
 and RRT branches, plus a `VISUALIZATION_ACCENT_COLOR` for its lookahead point

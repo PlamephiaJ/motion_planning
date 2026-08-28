@@ -78,13 +78,13 @@ private:
     double lookahead_distance_ = 0.4;
     double pursuit_gain_ = 0.25;
     double steering_limit_ = 0.41;
-    std::string steering_controller_type_ = "legacy_pure_pursuit";
-    std::string speed_controller_type_ = "steering_band";
+    std::string steering_controller_type_ = "pure_pursuit";
+    std::string speed_controller_type_ = "trajectory";
     motion_control::SteeringBandSpeedConfig steering_band_speed_config_;
     motion_control::PurePursuitConfig pure_pursuit_config_;
     motion_control::TrajectorySpeedConfig trajectory_speed_config_;
     motion_control::CurvatureSpeedLimiterConfig curvature_limiter_config_;
-    bool curvature_speed_limiter_enabled_ = false;
+    bool curvature_speed_limiter_enabled_ = true;
     bool blocked_path_speed_limiter_enabled_ = true;
     std::vector<double> visualization_primary_color_{0.1, 0.65, 1.0};
     std::vector<double> visualization_accent_color_{0.0, 1.0, 0.65};

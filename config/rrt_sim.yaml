@@ -75,9 +75,9 @@ launch:
         drive_topic: /opp_drive
         control_topic: /opp_racecar/control
 
-        # [P0] 第二辆车参考轨迹；当前 filtered.csv 仅有 x,y，因此只能直接配 steering_band。
-        # 若切 trajectory，必须换成 x,y,speed CSV，否则节点会在启动时明确报错并退出。
-        waypoint_file_path: /home/plamephia/workspace/sim_ws/waypoint/Spielberg_map/filtered.csv
+        # [P0] 第二辆车使用带 nominal speed 的反向点序轨迹，兼容默认 trajectory controller。
+        # 若换回只有 x,y 的 filtered.csv，必须同时切回 steering_band，否则节点会启动报错。
+        waypoint_file_path: /home/plamephia/workspace/sim_ws/waypoint/Spielberg_map/Spielberg_clockwise_20260828_103001.csv
 
         # [P0] 第二辆车 TF frame，任何一个填错都会造成障碍或车辆位姿变换错误。
         map_frame: map
