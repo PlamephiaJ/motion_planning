@@ -27,9 +27,10 @@ RRT::RRT()
     RCLCPP_INFO(this->get_logger(), "RRT motion-planning node started.");
     RCLCPP_INFO(
         this->get_logger(),
-        "Control modules: steering=%s speed=%s curvature_limiter=%s "
+        "Control modules: steering=%s lqg=%s speed=%s curvature_limiter=%s "
         "blocked_path_limiter=%s.",
-        steering_controller_type_.c_str(), speed_controller_type_.c_str(),
+        steering_controller_type_.c_str(), lqg_enabled_ ? "on" : "off",
+        speed_controller_type_.c_str(),
         curvature_speed_limiter_enabled_ ? "on" : "off",
         blocked_path_speed_limiter_enabled_ ? "on" : "off");
     if (is_vehicle_enabled_)
@@ -265,6 +266,39 @@ void RRT::load_parameters()
         "PURE_PURSUIT_MAX_STEERING", pure_pursuit_config_.max_steering);
     pure_pursuit_config_.max_steering = this->get_parameter(
         "PURE_PURSUIT_MAX_STEERING").as_double();
+
+    this->declare_parameter("LQG_ENABLED", lqg_enabled_);
+    lqg_enabled_ = this->get_parameter("LQG_ENABLED").as_bool();
+    this->declare_parameter("LQG_WHEELBASE", lqg_config_.wheelbase);
+    lqg_config_.wheelbase = this->get_parameter("LQG_WHEELBASE").as_double();
+    this->declare_parameter("LQG_DT", lqg_config_.dt);
+    lqg_config_.dt = this->get_parameter("LQG_DT").as_double();
+    this->declare_parameter(
+        "LQG_CROSS_TRACK_WEIGHT", lqg_config_.cross_track_weight);
+    lqg_config_.cross_track_weight = this->get_parameter(
+        "LQG_CROSS_TRACK_WEIGHT").as_double();
+    this->declare_parameter(
+        "LQG_HEADING_WEIGHT", lqg_config_.heading_weight);
+    lqg_config_.heading_weight = this->get_parameter(
+        "LQG_HEADING_WEIGHT").as_double();
+    this->declare_parameter(
+        "LQG_STEERING_WEIGHT", lqg_config_.steering_weight);
+    lqg_config_.steering_weight = this->get_parameter(
+        "LQG_STEERING_WEIGHT").as_double();
+    this->declare_parameter("LQG_AUTHORITY", lqg_config_.authority);
+    lqg_config_.authority = this->get_parameter("LQG_AUTHORITY").as_double();
+    this->declare_parameter(
+        "LQG_MAX_STEERING", lqg_config_.max_steering);
+    lqg_config_.max_steering = this->get_parameter(
+        "LQG_MAX_STEERING").as_double();
+    this->declare_parameter(
+        "LQG_MAX_STEERING_RATE", lqg_config_.max_steering_rate);
+    lqg_config_.max_steering_rate = this->get_parameter(
+        "LQG_MAX_STEERING_RATE").as_double();
+    this->declare_parameter(
+        "LQG_MINIMUM_MODEL_SPEED", lqg_config_.minimum_model_speed);
+    lqg_config_.minimum_model_speed = this->get_parameter(
+        "LQG_MINIMUM_MODEL_SPEED").as_double();
 
     this->declare_parameter("SPEED_CONTROLLER_TYPE", speed_controller_type_);
     speed_controller_type_ = this->get_parameter(
@@ -528,6 +562,11 @@ void RRT::initialize_algorithm_modules()
         legacy_pure_pursuit_controller_ =
             std::make_unique<motion_control::LegacyPurePursuitController>(
                 legacy_config);
+    }
+    if (lqg_enabled_)
+    {
+        lqg_controller_ =
+            std::make_unique<motion_control::LqgController>(lqg_config_);
     }
     if (speed_controller_type_ == "trajectory")
     {
@@ -996,10 +1035,15 @@ void RRT::follow_path(
     pose.x = current_global_pose_.position.x;
     pose.y = current_global_pose_.position.y;
     pose.yaw = tf2::getYaw(current_global_pose_.orientation);
-    const motion_control::SteeringCommand steering_command =
+    motion_control::SteeringCommand steering_command =
         steering_controller_type_ == "pure_pursuit" ?
         pure_pursuit_controller_->compute(path, pose, current_speed_) :
         legacy_pure_pursuit_controller_->compute(path, pose);
+    if (lqg_enabled_)
+    {
+        steering_command = lqg_controller_->compute(
+            path, pose, current_speed_, steering_command);
+    }
 
     ackermann_msgs::msg::AckermannDriveStamped command;
     command.header.stamp = this->now();
@@ -1050,6 +1094,10 @@ void RRT::stop_vehicle()
     command.drive.speed = 0.0;
     command.drive.steering_angle = 0.0;
     last_commanded_steering_angle_ = 0.0;
+    if (lqg_controller_)
+    {
+        lqg_controller_->reset();
+    }
     drive_publisher_->publish(command);
 }
 

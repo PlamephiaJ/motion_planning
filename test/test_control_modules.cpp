@@ -1,4 +1,5 @@
 #include "motion_planning/controllers.hpp"
+#include "motion_planning/lqg_controller.hpp"
 #include "motion_planning/reference_trajectory.hpp"
 #include "motion_planning/speed_limiters.hpp"
 
@@ -135,6 +136,91 @@ TEST(PurePursuitController, ReportsNoForwardTargetForSafeComposition)
 
     EXPECT_FALSE(command.has_forward_target);
     EXPECT_DOUBLE_EQ(0.0, command.steering);
+}
+
+TEST(LqgController, SteersTowardAnOffsetPathAndLimitsSteeringRate)
+{
+    motion_control::LqgConfig config;
+    config.authority = 1.0;
+    config.dt = 0.05;
+    config.max_steering_rate = 0.4;
+    motion_control::LqgController controller(config);
+    const reference_trajectory::Path path = {
+        sample(0.1, 0.4, 2.0), sample(1.0, 0.4, 2.0),
+        sample(2.0, 0.4, 2.0)};
+    motion_control::SteeringCommand base;
+    base.has_forward_target = true;
+    base.target = path.at(1).position;
+    base.target_index = 1;
+
+    const auto command = controller.compute(path, {}, 2.0, base);
+
+    EXPECT_GT(command.steering, 0.0);
+    EXPECT_LE(command.steering, config.max_steering_rate * config.dt + 1.0e-12);
+    EXPECT_EQ(base.target_index, command.target_index);
+}
+
+TEST(LqgController, UsesCurvatureFeedforwardWithoutTrackingError)
+{
+    motion_control::LqgConfig config;
+    config.authority = 1.0;
+    motion_control::LqgController controller(config);
+    constexpr double radius = 2.0;
+    const auto arc_sample = [](const double angle)
+        {
+            return sample(
+                radius * std::sin(angle),
+                radius * (1.0 - std::cos(angle)), 2.0);
+        };
+    const reference_trajectory::Path path = {
+        arc_sample(0.0), arc_sample(0.1), arc_sample(0.2), arc_sample(0.3)};
+    motion_control::SteeringCommand base;
+    base.has_forward_target = true;
+    base.target = path.at(1).position;
+    base.target_index = 1;
+    motion_control::VehiclePose pose;
+    pose.yaw = 0.05;
+
+    const auto command = controller.compute(path, pose, 2.0, base);
+
+    EXPECT_GT(command.steering, 0.0);
+}
+
+TEST(LqgController, MatchesFyCodeDiscreteLqrReferenceValue)
+{
+    motion_control::LqgConfig config;
+    config.authority = 0.25;
+    config.max_steering_rate = 100.0;
+    motion_control::LqgController controller(config);
+    const reference_trajectory::Path path = {
+        sample(0.1, 0.4, 2.0), sample(1.0, 0.4, 2.0),
+        sample(2.0, 0.4, 2.0)};
+    motion_control::SteeringCommand base;
+    base.steering = 0.2;
+    base.has_forward_target = true;
+    base.target = path.at(1).position;
+    base.target_index = 1;
+
+    const auto command = controller.compute(path, {}, 2.0, base);
+
+    // Generated from fy-code's solve_discrete_are implementation for the
+    // same first Kalman/LQR update and base steering command.
+    EXPECT_NEAR(0.41021717216191983, command.steering, 1.0e-9);
+}
+
+TEST(LqgController, RejectsInvalidConfigurationAndEmptyPaths)
+{
+    motion_control::LqgConfig invalid;
+    invalid.authority = 1.1;
+    EXPECT_THROW(
+        static_cast<void>(motion_control::LqgController{invalid}),
+        std::invalid_argument);
+
+    motion_control::LqgController controller;
+    motion_control::SteeringCommand base;
+    base.has_forward_target = true;
+    EXPECT_THROW(
+        controller.compute({}, {}, 1.0, base), std::invalid_argument);
 }
 
 TEST(SteeringBandSpeedController, PreservesExistingThreeBands)

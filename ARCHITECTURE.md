@@ -16,6 +16,7 @@ contracts for every interface.
 | Position/nominal-speed pairing and RRT reference-speed association | `include/motion_planning/reference_trajectory.hpp` | `src/reference_trajectory.cpp` |
 | Optimal-reference/RRT-detour mode switching and safe rejoin | `include/motion_planning/reference_path_manager.hpp` | `src/reference_path_manager.cpp` |
 | Selectable Pure Pursuit and base speed controllers | `include/motion_planning/controllers.hpp` | `src/controllers.cpp` |
+| Optional fy-code LQG steering correction | `include/motion_planning/lqg_controller.hpp` | `src/lqg_controller.cpp` |
 | Curvature and blocked-path safety speed limiters | `include/motion_planning/speed_limiters.hpp` | `src/speed_limiters.cpp` |
 | Local-path conversion/resampling and compatibility helpers | `include/motion_planning/path_tracking.hpp` | `src/path_tracking.cpp` |
 | LaserScan filtering plus static/live obstacle-layer lifetime | `include/motion_planning/dynamic_obstacle_map.hpp` | `src/dynamic_obstacle_map.cpp` |
@@ -36,8 +37,9 @@ contracts for every interface.
 5. `ReferenceTrajectory` associates every local optimal or RRT point with the
    nominal speed interpolated from the same CSV position/speed samples.
 6. The configured steering controller and speed controller independently
-   consume that paired local path. Enabled safety limiters are composed by
-   taking the minimum speed.
+   consume that paired local path. When enabled, LQG applies a state-estimated
+   correction to the base steering command. Enabled safety limiters are
+   composed by taking the minimum speed.
 7. `RRT` publishes the path/tree markers and Ackermann command.
 
 The configured `odometry_topic` is a separate vehicle-state input. Its
@@ -137,6 +139,10 @@ Controller selection is independent:
 - `STEERING_CONTROLLER_TYPE: legacy_pure_pursuit` preserves the original
   fixed-lookahead `motion_planning` behavior; `pure_pursuit` selects the
   fy-code forward-sample implementation and its speed-dependent lookahead.
+- `LQG_ENABLED` independently layers fy-code's two-state Kalman estimator,
+  curvature feedforward, and discrete LQR correction over either selected
+  steering controller. It is enabled by default and can be bypassed without
+  changing the base steering selection.
 - `SPEED_CONTROLLER_TYPE: steering_band` preserves the original three speed
   bands; `trajectory` uses the CSV nominal speed plus fy-code forward braking
   preview. The latter requires an `x,y,speed` CSV.
@@ -145,13 +151,13 @@ Controller selection is independent:
 - `BLOCKED_PATH_SPEED_LIMITER_ENABLED` controls the existing LiDAR-only safety
   cap. It is enabled by default.
 
-The shipped defaults select the newly integrated `pure_pursuit`, `trajectory`,
-curvature limiting on, and blocked-path limiting on. Reverting to the previous
-behavior remains a configuration-only operation: select
-`legacy_pure_pursuit`, `steering_band`, and disable curvature limiting. For
-legacy speed-band operation an `x,y` CSV remains accepted; its internal
-nominal-speed entries are filled with `SPEED_STRAIGHT` solely to preserve the
-paired-path invariant.
+The shipped defaults select the newly integrated `pure_pursuit`, enable LQG,
+select `trajectory`, and enable curvature and blocked-path limiting. Reverting
+to the previous behavior remains a configuration-only operation: select
+`legacy_pure_pursuit`, disable LQG, select `steering_band`, and disable
+curvature limiting. For legacy speed-band operation an `x,y` CSV remains
+accepted; its internal nominal-speed entries are filled with `SPEED_STRAIGHT`
+solely to preserve the paired-path invariant.
 
 Each vehicle also has an RGB `VISUALIZATION_PRIMARY_COLOR` for its path, goal,
 and RRT branches, plus a `VISUALIZATION_ACCENT_COLOR` for its lookahead point

@@ -131,6 +131,40 @@ rrt_node:
     # 调大：急弯能力增强但甩尾/执行器饱和风险上升；调小：稳定但可能无法通过最小半径弯道。
     PURE_PURSUIT_MAX_STEERING: 0.42
 
+    # -------------------- fy-code LQG 转向修正模块 --------------------
+
+    # [P0] true=在所选基础 steering controller 后启用 Kalman + LQR 修正；false=完全旁路。
+    # 默认开启。首次实车应保持较低 AUTHORITY，并先在低速下确认转向符号与跟踪稳定性。
+    LQG_ENABLED: true
+
+    # [P0][m] LQG 线性自行车模型轴距，必须 > 0；应使用车辆真实几何值。
+    LQG_WHEELBASE: 0.33
+
+    # [P1][s] LQG 离散模型周期，必须 > 0；通常与 PLANNING_UPDATE_PERIOD 保持一致。
+    LQG_DT: 0.05
+
+    # [P1] 横向误差状态权重，必须 >= 0。调大：更强纠正横向偏差，但可能增加摆振。
+    LQG_CROSS_TRACK_WEIGHT: 8.0
+
+    # [P1] 航向误差状态权重，必须 >= 0。调大：更快对齐路径方向，但转向更积极。
+    LQG_HEADING_WEIGHT: 5.0
+
+    # [P1] 转向输入权重，必须 >= 0。调大：LQR 修正更平缓；调小：修正更激进。
+    LQG_STEERING_WEIGHT: 0.25
+
+    # [P0][0..1] LQG 对最终转向的混合权重；0=基础 controller，1=完全使用 LQG。
+    # fy-code 默认 0.25，以基础几何控制器保留高曲率/非线性区域的主要控制权。
+    LQG_AUTHORITY: 0.25
+
+    # [P0][rad] LQG 混合后转向绝对值上限，必须 > 0，应匹配执行器物理限制。
+    LQG_MAX_STEERING: 0.42
+
+    # [P0][rad/s] LQG 输出最大转角变化率，必须 > 0。调小更平滑但急弯响应变慢。
+    LQG_MAX_STEERING_RATE: 2.5
+
+    # [P2][m/s] 建模速度下限，必须 > 0，避免停车附近系统退化；保留 fy-code 默认 0.5。
+    LQG_MINIMUM_MODEL_SPEED: 0.5
+
     # -------------------- TrajectorySpeedController --------------------
     # 以下参数只在 SPEED_CONTROLLER_TYPE=trajectory 时生效。
 

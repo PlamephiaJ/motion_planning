@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.8)
 project(motion_planning)
 
+# Default to Release build
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 # Default to C++17
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 17)
@@ -41,6 +46,7 @@ include_directories(
 add_library(motion_planning_core STATIC
   src/controllers.cpp
   src/dynamic_obstacle_map.cpp
+  src/lqg_controller.cpp
   src/occupancy_grid.cpp
   src/optimal_trajectory.cpp
   src/path_tracking.cpp

@@ -8,6 +8,8 @@
 
 #include "../include/motion_planning/FileHandler.hpp"
 
+#include <stdexcept>
+
 FileHandler::FileHandler(const std::string& file_path) : file_path(file_path) {}
 
 const std::string& FileHandler::get_file_path() const
@@ -28,21 +30,28 @@ std::vector<geometry_msgs::msg::Point> CSVHandler::read_waypoint_list_from_csv()
     }
 
     std::string line;
-    double x, y;
     // pass title row.
     std::getline(file, line);
+    std::size_t line_number = 1;
     while (std::getline(file, line))
     {
+        ++line_number;
+        if (line.find_first_not_of(" \t\r") == std::string::npos)
+        {
+            continue;
+        }
         std::stringstream ss(line);
-        std::string token;
-        if (std::getline(ss, token, ','))
+        std::string x_token;
+        std::string y_token;
+        if (!std::getline(ss, x_token, ',') ||
+            !std::getline(ss, y_token, ','))
         {
-            x = std::stod(token);
+            throw std::runtime_error(
+                "Couldn't read x,y waypoint at CSV line " +
+                std::to_string(line_number) + ".");
         }
-        if (std::getline(ss, token, ','))
-        {
-            y = std::stod(token);
-        }
+        const double x = std::stod(x_token);
+        const double y = std::stod(y_token);
         geometry_msgs::msg::Point point_mapframe;
         point_mapframe.x = x;
         point_mapframe.y = y;
@@ -65,32 +74,31 @@ std::vector<PosAndSpeed> CSVHandler::read_waypoint_and_speed_list_from_csv()
     }
 
     std::string line;
-    double x, y;
-    double speed = std::nan("");
     // pass title row.
     std::getline(file, line);
+    std::size_t line_number = 1;
     while (std::getline(file, line))
     {
+        ++line_number;
+        if (line.find_first_not_of(" \t\r") == std::string::npos)
+        {
+            continue;
+        }
         std::stringstream ss(line);
-        std::string token;
-        if (std::getline(ss, token, ','))
+        std::string x_token;
+        std::string y_token;
+        std::string speed_token;
+        if (!std::getline(ss, x_token, ',') ||
+            !std::getline(ss, y_token, ',') ||
+            !std::getline(ss, speed_token, ','))
         {
-            x = std::stod(token);
+            throw std::runtime_error(
+                "Couldn't read x,y,speed waypoint at CSV line " +
+                std::to_string(line_number) + ".");
         }
-
-        if (std::getline(ss, token, ','))
-        {
-            y = std::stod(token);
-        }
-
-        if (std::getline(ss, token, ','))
-        {
-            speed = std::stod(token);
-        }
-        else
-        {
-            throw std::runtime_error("Couldn't read speed information.");
-        }
+        const double x = std::stod(x_token);
+        const double y = std::stod(y_token);
+        const double speed = std::stod(speed_token);
 
         PosAndSpeed pas;
         pas.position.x = x;
