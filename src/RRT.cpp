@@ -7,6 +7,7 @@
 #include "geometry_msgs/msg/point_stamped.hpp"
 #include "std_msgs/msg/color_rgba.hpp"
 #include "tf2/exceptions.h"
+#include "tf2/utils.h"
 #include "tf2/time.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
@@ -24,6 +25,13 @@ RRT::RRT()
     initialize_ros_interfaces();
 
     RCLCPP_INFO(this->get_logger(), "RRT motion-planning node started.");
+    RCLCPP_INFO(
+        this->get_logger(),
+        "Control modules: steering=%s speed=%s curvature_limiter=%s "
+        "blocked_path_limiter=%s.",
+        steering_controller_type_.c_str(), speed_controller_type_.c_str(),
+        curvature_speed_limiter_enabled_ ? "on" : "off",
+        blocked_path_speed_limiter_enabled_ ? "on" : "off");
     if (is_vehicle_enabled_)
     {
         RCLCPP_WARN(this->get_logger(), "Vehicle motion is enabled on launch.");
@@ -208,10 +216,23 @@ void RRT::load_parameters()
             "Bad configuration. Progress search distances must be >= 0.");
     }
 
+    this->declare_parameter(
+        "STEERING_CONTROLLER_TYPE", steering_controller_type_);
+    steering_controller_type_ = this->get_parameter(
+        "STEERING_CONTROLLER_TYPE").as_string();
+    if (steering_controller_type_ != "legacy_pure_pursuit" &&
+        steering_controller_type_ != "pure_pursuit")
+    {
+        throw std::invalid_argument(
+            "Bad configuration. STEERING_CONTROLLER_TYPE must be "
+            "legacy_pure_pursuit or pure_pursuit.");
+    }
+
     this->declare_parameter("DISTANCE_LOOK_AHEAD", lookahead_distance_);
     lookahead_distance_ =
         this->get_parameter("DISTANCE_LOOK_AHEAD").as_double();
-    if (lookahead_distance_ <= 0.0)
+    if (steering_controller_type_ == "legacy_pure_pursuit" &&
+        lookahead_distance_ <= 0.0)
     {
         throw std::invalid_argument(
             "Bad configuration. DISTANCE_LOOK_AHEAD must be > 0.");
@@ -219,49 +240,138 @@ void RRT::load_parameters()
 
     this->declare_parameter("PID_P", pursuit_gain_);
     pursuit_gain_ = this->get_parameter("PID_P").as_double();
-    if (pursuit_gain_ <= 0.0)
+    if (steering_controller_type_ == "legacy_pure_pursuit" &&
+        pursuit_gain_ <= 0.0)
     {
         throw std::invalid_argument("Bad configuration. PID_P must be > 0.");
     }
 
+    this->declare_parameter("PURE_PURSUIT_WHEELBASE", pure_pursuit_config_.wheelbase);
+    pure_pursuit_config_.wheelbase = this->get_parameter(
+        "PURE_PURSUIT_WHEELBASE").as_double();
+    this->declare_parameter("PURE_PURSUIT_LOOKAHEAD", pure_pursuit_config_.lookahead);
+    pure_pursuit_config_.lookahead = this->get_parameter(
+        "PURE_PURSUIT_LOOKAHEAD").as_double();
+    this->declare_parameter(
+        "PURE_PURSUIT_LOOKAHEAD_SPEED_GAIN",
+        pure_pursuit_config_.lookahead_speed_gain);
+    pure_pursuit_config_.lookahead_speed_gain = this->get_parameter(
+        "PURE_PURSUIT_LOOKAHEAD_SPEED_GAIN").as_double();
+    this->declare_parameter(
+        "PURE_PURSUIT_MAX_LOOKAHEAD", pure_pursuit_config_.max_lookahead);
+    pure_pursuit_config_.max_lookahead = this->get_parameter(
+        "PURE_PURSUIT_MAX_LOOKAHEAD").as_double();
+    this->declare_parameter(
+        "PURE_PURSUIT_MAX_STEERING", pure_pursuit_config_.max_steering);
+    pure_pursuit_config_.max_steering = this->get_parameter(
+        "PURE_PURSUIT_MAX_STEERING").as_double();
+
+    this->declare_parameter("SPEED_CONTROLLER_TYPE", speed_controller_type_);
+    speed_controller_type_ = this->get_parameter(
+        "SPEED_CONTROLLER_TYPE").as_string();
+    if (speed_controller_type_ != "steering_band" &&
+        speed_controller_type_ != "trajectory")
+    {
+        throw std::invalid_argument(
+            "Bad configuration. SPEED_CONTROLLER_TYPE must be "
+            "steering_band or trajectory.");
+    }
+
     this->declare_parameter(
         "SPEED_LOW_STEERING_THRESHOLD_DEGREES",
-        speed_profile_.low_steering_threshold_degrees);
-    speed_profile_.low_steering_threshold_degrees = this->get_parameter(
+        steering_band_speed_config_.low_steering_threshold_degrees);
+    steering_band_speed_config_.low_steering_threshold_degrees = this->get_parameter(
         "SPEED_LOW_STEERING_THRESHOLD_DEGREES").as_double();
     this->declare_parameter(
         "SPEED_MEDIUM_STEERING_THRESHOLD_DEGREES",
-        speed_profile_.medium_steering_threshold_degrees);
-    speed_profile_.medium_steering_threshold_degrees = this->get_parameter(
+        steering_band_speed_config_.medium_steering_threshold_degrees);
+    steering_band_speed_config_.medium_steering_threshold_degrees = this->get_parameter(
         "SPEED_MEDIUM_STEERING_THRESHOLD_DEGREES").as_double();
-    if (speed_profile_.low_steering_threshold_degrees < 0.0 ||
-        speed_profile_.medium_steering_threshold_degrees <=
-        speed_profile_.low_steering_threshold_degrees)
+    if (speed_controller_type_ == "steering_band" &&
+        (steering_band_speed_config_.low_steering_threshold_degrees < 0.0 ||
+        steering_band_speed_config_.medium_steering_threshold_degrees <=
+        steering_band_speed_config_.low_steering_threshold_degrees))
     {
         throw std::invalid_argument(
             "Bad configuration. Speed steering thresholds must satisfy "
             "0 <= low < medium.");
     }
 
-    this->declare_parameter("SPEED_STRAIGHT", speed_profile_.straight_speed);
-    speed_profile_.straight_speed =
+    this->declare_parameter(
+        "SPEED_STRAIGHT", steering_band_speed_config_.straight_speed);
+    steering_band_speed_config_.straight_speed =
         this->get_parameter("SPEED_STRAIGHT").as_double();
     this->declare_parameter(
-        "SPEED_MEDIUM_TURN", speed_profile_.medium_turn_speed);
-    speed_profile_.medium_turn_speed =
+        "SPEED_MEDIUM_TURN", steering_band_speed_config_.medium_turn_speed);
+    steering_band_speed_config_.medium_turn_speed =
         this->get_parameter("SPEED_MEDIUM_TURN").as_double();
     this->declare_parameter(
-        "SPEED_SHARP_TURN", speed_profile_.sharp_turn_speed);
-    speed_profile_.sharp_turn_speed =
+        "SPEED_SHARP_TURN", steering_band_speed_config_.sharp_turn_speed);
+    steering_band_speed_config_.sharp_turn_speed =
         this->get_parameter("SPEED_SHARP_TURN").as_double();
-    if (speed_profile_.sharp_turn_speed <= 0.0 ||
-        speed_profile_.medium_turn_speed < speed_profile_.sharp_turn_speed ||
-        speed_profile_.straight_speed < speed_profile_.medium_turn_speed)
+    if (speed_controller_type_ == "steering_band" &&
+        (steering_band_speed_config_.sharp_turn_speed <= 0.0 ||
+        steering_band_speed_config_.medium_turn_speed <
+        steering_band_speed_config_.sharp_turn_speed ||
+        steering_band_speed_config_.straight_speed <
+        steering_band_speed_config_.medium_turn_speed))
     {
         throw std::invalid_argument(
             "Bad configuration. Speeds must satisfy "
             "straight >= medium turn >= sharp turn > 0.");
     }
+
+    this->declare_parameter(
+        "TRAJECTORY_SPEED_MAX", trajectory_speed_config_.max_speed);
+    trajectory_speed_config_.max_speed = this->get_parameter(
+        "TRAJECTORY_SPEED_MAX").as_double();
+    this->declare_parameter(
+        "TRAJECTORY_SPEED_MINIMUM_STEERING_SCALE",
+        trajectory_speed_config_.minimum_speed_scale);
+    trajectory_speed_config_.minimum_speed_scale = this->get_parameter(
+        "TRAJECTORY_SPEED_MINIMUM_STEERING_SCALE").as_double();
+    this->declare_parameter(
+        "TRAJECTORY_SPEED_PREVIEW_DISTANCE",
+        trajectory_speed_config_.speed_preview_distance);
+    trajectory_speed_config_.speed_preview_distance = this->get_parameter(
+        "TRAJECTORY_SPEED_PREVIEW_DISTANCE").as_double();
+    this->declare_parameter(
+        "TRAJECTORY_SPEED_MAX_DECELERATION",
+        trajectory_speed_config_.max_deceleration);
+    trajectory_speed_config_.max_deceleration = this->get_parameter(
+        "TRAJECTORY_SPEED_MAX_DECELERATION").as_double();
+    this->declare_parameter(
+        "TRAJECTORY_SPEED_CROSS_TRACK_ERROR_GAIN",
+        trajectory_speed_config_.cross_track_error_gain);
+    trajectory_speed_config_.cross_track_error_gain = this->get_parameter(
+        "TRAJECTORY_SPEED_CROSS_TRACK_ERROR_GAIN").as_double();
+    this->declare_parameter(
+        "TRAJECTORY_SPEED_MINIMUM_TRACKING_SCALE",
+        trajectory_speed_config_.minimum_tracking_speed_scale);
+    trajectory_speed_config_.minimum_tracking_speed_scale = this->get_parameter(
+        "TRAJECTORY_SPEED_MINIMUM_TRACKING_SCALE").as_double();
+    this->declare_parameter(
+        "TRAJECTORY_SPEED_MAX_STEERING",
+        trajectory_speed_config_.max_steering);
+    trajectory_speed_config_.max_steering = this->get_parameter(
+        "TRAJECTORY_SPEED_MAX_STEERING").as_double();
+
+    this->declare_parameter(
+        "CURVATURE_SPEED_LIMITER_ENABLED",
+        curvature_speed_limiter_enabled_);
+    curvature_speed_limiter_enabled_ = this->get_parameter(
+        "CURVATURE_SPEED_LIMITER_ENABLED").as_bool();
+    this->declare_parameter(
+        "CURVATURE_MAX_LATERAL_ACCELERATION",
+        curvature_limiter_config_.max_lateral_acceleration);
+    curvature_limiter_config_.max_lateral_acceleration = this->get_parameter(
+        "CURVATURE_MAX_LATERAL_ACCELERATION").as_double();
+
+    this->declare_parameter(
+        "BLOCKED_PATH_SPEED_LIMITER_ENABLED",
+        blocked_path_speed_limiter_enabled_);
+    blocked_path_speed_limiter_enabled_ = this->get_parameter(
+        "BLOCKED_PATH_SPEED_LIMITER_ENABLED").as_bool();
 
     this->declare_parameter(
         "BLOCKED_PATH_STOP_DISTANCE", blocked_path_stop_distance_);
@@ -271,7 +381,9 @@ void RRT::load_parameters()
         "BLOCKED_PATH_SPEED_GAIN", blocked_path_speed_gain_);
     blocked_path_speed_gain_ = this->get_parameter(
         "BLOCKED_PATH_SPEED_GAIN").as_double();
-    if (blocked_path_stop_distance_ < 0.0 || blocked_path_speed_gain_ <= 0.0)
+    if (blocked_path_speed_limiter_enabled_ &&
+        (blocked_path_stop_distance_ < 0.0 ||
+        blocked_path_speed_gain_ <= 0.0))
     {
         throw std::invalid_argument(
             "Bad configuration. BLOCKED_PATH_STOP_DISTANCE must be >= 0 "
@@ -350,14 +462,41 @@ void RRT::load_parameters()
 void RRT::load_global_waypoints()
 {
     CSVHandler csv_handler(waypoint_file_path_);
+    reference_trajectory::Path samples;
     try
     {
-        global_waypoints_ = csv_handler.read_waypoint_list_from_csv();
+        const auto records =
+            csv_handler.read_waypoint_and_speed_list_from_csv();
+        samples.reserve(records.size());
+        for (const auto& record : records)
+        {
+            samples.push_back({record.position, record.speed});
+        }
     }
     catch (const std::exception& error)
     {
-        RCLCPP_ERROR(this->get_logger(), "Waypoint load failed: %s", error.what());
+        if (speed_controller_type_ == "trajectory")
+        {
+            throw std::invalid_argument(
+                std::string("Trajectory speed controller requires x,y,speed CSV: ") +
+                error.what());
+        }
+        const auto positions = csv_handler.read_waypoint_list_from_csv();
+        samples.reserve(positions.size());
+        for (const auto& position : positions)
+        {
+            samples.push_back(
+                {position, steering_band_speed_config_.straight_speed});
+        }
+        RCLCPP_WARN(
+            this->get_logger(),
+            "Waypoint CSV has no usable speed column (%s); steering_band "
+            "mode is filling paired nominal speeds with SPEED_STRAIGHT.",
+            error.what());
     }
+    reference_trajectory_ =
+        std::make_unique<reference_trajectory::ReferenceTrajectory>(samples);
+    global_waypoints_ = reference_trajectory_->positions();
 }
 
 void RRT::initialize_algorithm_modules()
@@ -373,6 +512,50 @@ void RRT::initialize_algorithm_modules()
     planner_config.static_margin = map_inflation_margin_;
     planner_config.dynamic_margin = detected_obstacle_margin_;
     planner_ = std::make_unique<rrt_star::Planner>(planner_config);
+
+    motion_control::LegacyPurePursuitConfig legacy_config;
+    legacy_config.lookahead_distance = lookahead_distance_;
+    legacy_config.proportional_gain = pursuit_gain_;
+    legacy_config.max_steering = steering_limit_;
+    if (steering_controller_type_ == "pure_pursuit")
+    {
+        pure_pursuit_controller_ =
+            std::make_unique<motion_control::PurePursuitController>(
+                pure_pursuit_config_);
+    }
+    else
+    {
+        legacy_pure_pursuit_controller_ =
+            std::make_unique<motion_control::LegacyPurePursuitController>(
+                legacy_config);
+    }
+    if (speed_controller_type_ == "trajectory")
+    {
+        trajectory_speed_controller_ =
+            std::make_unique<motion_control::TrajectorySpeedController>(
+                trajectory_speed_config_);
+    }
+    else
+    {
+        steering_band_speed_controller_ =
+            std::make_unique<motion_control::SteeringBandSpeedController>(
+                steering_band_speed_config_);
+    }
+    if (curvature_speed_limiter_enabled_)
+    {
+        curvature_speed_limiter_ =
+            std::make_unique<motion_control::CurvatureSpeedLimiter>(
+                curvature_limiter_config_);
+    }
+    motion_control::BlockedPathSpeedLimiterConfig blocked_config;
+    blocked_config.stop_distance = blocked_path_stop_distance_;
+    blocked_config.gain = blocked_path_speed_gain_;
+    if (blocked_path_speed_limiter_enabled_)
+    {
+        blocked_path_speed_limiter_ =
+            std::make_unique<motion_control::BlockedPathSpeedLimiter>(
+                blocked_config);
+    }
 
     reference_path::ManagerConfig reference_config;
     reference_config.global_goal_distance = goal_ahead_distance_;
@@ -560,8 +743,6 @@ bool RRT::lookup_vehicle_transforms()
     {
         vehicle_to_map_ = tf_buffer_->lookupTransform(
             map_frame_, vehicle_frame_, tf2::TimePointZero);
-        map_to_vehicle_ = tf_buffer_->lookupTransform(
-            vehicle_frame_, map_frame_, tf2::TimePointZero);
     }
     catch (const tf2::TransformException& error)
     {
@@ -580,16 +761,6 @@ geometry_msgs::msg::Point RRT::laser_point_to_map(
     geometry_msgs::msg::PointStamped target;
     source.point = laser_point;
     tf2::doTransform(source, target, laser_to_map_);
-    return target.point;
-}
-
-geometry_msgs::msg::Point RRT::map_point_to_vehicle(
-    const geometry_msgs::msg::Point& map_point) const
-{
-    geometry_msgs::msg::PointStamped source;
-    geometry_msgs::msg::PointStamped target;
-    source.point = map_point;
-    tf2::doTransform(source, target, map_to_vehicle_);
     return target.point;
 }
 
@@ -718,10 +889,12 @@ void RRT::update_global_pose(const geometry_msgs::msg::Pose& global_pose)
     {
         const auto path_points = path_tracking::resample_polyline(
             reference.local_optimal_reference, rrt_waypoint_interval_);
-        const nav_msgs::msg::Path path =
-            path_tracking::to_path_message(path_points, map_frame_);
+        const auto path = reference_trajectory_->associate(
+            path_points, reference.projection.progress,
+            progress_search_backward_, progress_search_forward_,
+            projection_fallback_distance_);
         publish_path_marker(path_points);
-        follow_path(path);
+        follow_path(path, false);
         clear_tree_visualization();
         return;
     }
@@ -768,10 +941,12 @@ void RRT::update_global_pose(const geometry_msgs::msg::Pose& global_pose)
     const auto raw_points = path_tracking::nodes_to_points(plan.path);
     const auto path_points = path_tracking::resample_polyline(
         raw_points, rrt_waypoint_interval_);
-    const nav_msgs::msg::Path path =
-        path_tracking::to_path_message(path_points, map_frame_);
+    const auto path = reference_trajectory_->associate(
+        path_points, reference.projection.progress,
+        progress_search_backward_, progress_search_forward_,
+        projection_fallback_distance_);
     publish_path_marker(path_points);
-    follow_path(path);
+    follow_path(path, true);
     visualize_tree(plan.tree);
 }
 
@@ -786,54 +961,72 @@ bool RRT::follow_blocked_reference(
         return false;
     }
 
-    const double speed_limit = path_tracking::blocked_path_speed_limit(
-        *collision_distance, blocked_path_stop_distance_,
-        blocked_path_speed_gain_);
+    const std::optional<double> speed_limit =
+        blocked_path_speed_limiter_enabled_ ?
+        std::optional<double>(blocked_path_speed_limiter_->compute(
+            *collision_distance)) : std::nullopt;
     const auto path_points = path_tracking::resample_polyline(
         optimal_reference, rrt_waypoint_interval_);
-    const nav_msgs::msg::Path path =
-        path_tracking::to_path_message(path_points, map_frame_);
+    const auto path = reference_trajectory_->associate(
+        path_points, std::nullopt, progress_search_backward_,
+        progress_search_forward_, projection_fallback_distance_);
     publish_path_marker(path_points);
-    follow_path(path, speed_limit);
+    follow_path(path, false, speed_limit);
     RCLCPP_INFO_THROTTLE(
         this->get_logger(), *this->get_clock(), 1000,
         "No detour available; LiDAR-only blocked-path control: "
         "collision distance %.2f m, speed limit %.2f m/s.",
-        *collision_distance, speed_limit);
+        *collision_distance, speed_limit.value_or(-1.0));
     return true;
 }
 
 void RRT::follow_path(
-    const nav_msgs::msg::Path& path,
+    const reference_trajectory::Path& path,
+    const bool is_rrt_detour,
     const std::optional<double> speed_limit)
 {
-    const auto target =
-        path_tracking::point_at_distance(path, lookahead_distance_);
-    if (!target)
+    if (path.empty())
     {
         RCLCPP_WARN(this->get_logger(), "Cannot follow an empty path.");
         stop_vehicle();
         return;
     }
 
-    const geometry_msgs::msg::Point vehicle_target =
-        map_point_to_vehicle(*target);
-    const double steering = path_tracking::pure_pursuit_steering(
-        vehicle_target.y, lookahead_distance_, pursuit_gain_, steering_limit_);
+    motion_control::VehiclePose pose;
+    pose.x = current_global_pose_.position.x;
+    pose.y = current_global_pose_.position.y;
+    pose.yaw = tf2::getYaw(current_global_pose_.orientation);
+    const motion_control::SteeringCommand steering_command =
+        steering_controller_type_ == "pure_pursuit" ?
+        pure_pursuit_controller_->compute(path, pose, current_speed_) :
+        legacy_pure_pursuit_controller_->compute(path, pose);
 
     ackermann_msgs::msg::AckermannDriveStamped command;
     command.header.stamp = this->now();
-    double commanded_speed = path_tracking::speed_for_steering(
-        steering, speed_profile_);
+    double commanded_speed = speed_controller_type_ == "trajectory" ?
+        trajectory_speed_controller_->compute(
+            path, pose, steering_command.steering) :
+        steering_band_speed_controller_->compute(steering_command.steering);
+    if (!steering_command.has_forward_target)
+    {
+        commanded_speed = 0.0;
+    }
+    if (is_rrt_detour && curvature_speed_limiter_enabled_)
+    {
+        commanded_speed = std::min(
+            commanded_speed,
+            curvature_speed_limiter_->compute(
+                path, steering_command.target_index));
+    }
     if (speed_limit)
     {
         commanded_speed = std::min(
             commanded_speed, std::max(0.0, *speed_limit));
     }
     command.drive.speed = static_cast<float>(commanded_speed);
-    command.drive.steering_angle = steering;
+    command.drive.steering_angle = steering_command.steering;
     command.drive.steering_angle_velocity = 1.0;
-    last_commanded_steering_angle_ = steering;
+    last_commanded_steering_angle_ = steering_command.steering;
     if (is_vehicle_enabled_)
     {
         drive_publisher_->publish(command);
@@ -845,7 +1038,7 @@ void RRT::follow_path(
 
     geometry_msgs::msg::Pose lookahead_pose;
     lookahead_pose.orientation.w = 1.0;
-    lookahead_pose.position = *target;
+    lookahead_pose.position = steering_command.target;
     lookahead_visualizer_->set_pose(lookahead_pose);
     lookahead_visualizer_->publish_marker();
 }

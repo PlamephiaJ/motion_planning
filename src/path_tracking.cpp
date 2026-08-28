@@ -1,4 +1,6 @@
 #include "motion_planning/path_tracking.hpp"
+#include "motion_planning/controllers.hpp"
+#include "motion_planning/speed_limiters.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -144,30 +146,27 @@ double pure_pursuit_steering(
 double speed_for_steering(
     const double steering_angle, const SpeedProfile& profile)
 {
-    constexpr double pi = 3.14159265358979323846;
-    const double degrees = std::abs(steering_angle) * 180.0 / pi;
-    if (degrees <= profile.low_steering_threshold_degrees)
-    {
-        return profile.straight_speed;
-    }
-    if (degrees <= profile.medium_steering_threshold_degrees)
-    {
-        return profile.medium_turn_speed;
-    }
-    return profile.sharp_turn_speed;
+    motion_control::SteeringBandSpeedConfig config;
+    config.low_steering_threshold_degrees =
+        profile.low_steering_threshold_degrees;
+    config.medium_steering_threshold_degrees =
+        profile.medium_steering_threshold_degrees;
+    config.straight_speed = profile.straight_speed;
+    config.medium_turn_speed = profile.medium_turn_speed;
+    config.sharp_turn_speed = profile.sharp_turn_speed;
+    return motion_control::SteeringBandSpeedController(config).compute(
+        steering_angle);
 }
 
 double blocked_path_speed_limit(
     const double collision_distance, const double stop_distance,
     const double gain)
 {
-    if (collision_distance < 0.0 || stop_distance < 0.0 || gain <= 0.0)
-    {
-        throw std::invalid_argument(
-            "collision distance and stop distance must be non-negative; "
-            "gain must be positive");
-    }
-    return std::max(0.0, (collision_distance - stop_distance) * gain);
+    motion_control::BlockedPathSpeedLimiterConfig config;
+    config.stop_distance = stop_distance;
+    config.gain = gain;
+    return motion_control::BlockedPathSpeedLimiter(config).compute(
+        collision_distance);
 }
 
 }  // namespace path_tracking

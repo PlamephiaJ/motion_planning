@@ -32,7 +32,7 @@ nav_msgs::msg::Path to_path_message(
     const std::vector<geometry_msgs::msg::Point>& points,
     const std::string& frame_id);
 
-/** Piecewise speed policy used after Pure Pursuit steering is computed. */
+/** Deprecated compatibility profile; new code uses SteeringBandSpeedController. */
 struct SpeedProfile
 {
     double low_steering_threshold_degrees = 10.0;

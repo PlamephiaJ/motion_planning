@@ -1,25 +1,185 @@
-# Environment-independent RRT*, reference-path, and fallback-control settings.
-# rrt_sim.yaml or rrt_real.yaml is merged over this file by rrt.launch.py.
+# 环境无关的 RRT*、参考轨迹、控制器和安全限速配置。
+# rrt.launch.py 会先读取本文件，再用 rrt_sim.yaml / rrt_real.yaml 覆盖同名项。
+#
+# 现场调参优先级：
+#   P0 = 安全或车辆物理参数，首次上车、换车、换地图时必须先确认；
+#   P1 = 对跟踪、避障成功率和单周期耗时影响明显，P0 稳定后再调；
+#   P2 = 鲁棒性、平滑度或算力微调，通常最后调。
+# 推荐顺序：
+#   1. P0 几何、最大速度、最大转角、膨胀距离和停车距离；
+#   2. 低速确认 steering controller 能稳定跟踪；
+#   3. 调 speed controller、预瞄和曲率限速；
+#   4. 最后调 RRT 采样/迭代数和 rejoin，兼顾成功率与周期预算。
+# 每次只改一组参数，并记录最大横向误差、最低 TTC 和规划耗时 P95。
+#
+# 现场症状速查（先降速再处理）：
+#   高速左右摆振：增大对应 LOOKAHEAD，或降低 legacy PID_P / 当前速度；
+#   入弯欠转/切出赛道：降低 LOOKAHEAD、降低弯速，并确认最大转角和轴距；
+#   入弯刹车太晚：增大 TRAJECTORY_SPEED_PREVIEW_DISTANCE，或降低 MAX_DECELERATION；
+#   RRT 弯道过快：开启 CURVATURE limiter，并降低 MAX_LATERAL_ACCELERATION；
+#   RRT 经常无解：先看膨胀是否过大，再增加迭代数、调整 STD/STEP_SIZE；
+#   障碍消失后仍绕行：降低 DYNAMIC_OBSTACLE_PERSISTENCE；
+#   障碍前停得太近：增大 BLOCKED_PATH_STOP_DISTANCE，或降低 BLOCKED_PATH_SPEED_GAIN；
+#   控制周期超时：降低 RRT 迭代/NEAR_RANGE，或增大 WAYPOINT_INTERVAL/更新周期。
+
 rrt_node:
   ros__parameters:
+    # -------------------- 动态障碍时间窗 --------------------
+
+    # [P1][s] LiDAR 动态障碍点保留时长，必须 > 0。
+    # 调大：抗单帧漏检更强，但障碍离开后会留下更久的“鬼影”；调小：响应更快，但容易闪烁。
     DYNAMIC_OBSTACLE_PERSISTENCE: 0.30
+
+    # [P1][s] 动态障碍地图最小重建周期，要求 0 < 本值 <= PERSISTENCE。
+    # 调大：CPU 更低但新障碍入图更慢；调小：更新及时，但点云合并和地图重建开销更高。
     DYNAMIC_MAP_UPDATE_PERIOD: 0.05
+
+    # [P0][s] rolling planning/control 周期，0.05 s = 20 Hz，必须 > 0。
+    # 调大：控制延迟增大、急弯和动态避障变差但省 CPU；调小：响应快但 RRT/TF/发布负载上升。
     PLANNING_UPDATE_PERIOD: 0.05
 
+    # -------------------- RRT* 搜索预算与几何 --------------------
+
+    # [P1][次] 每周期至少执行的采样次数，必须 > 0。
+    # 调大：成功率/质量通常提高，但每周期最低耗时上升；调小：更快但复杂障碍中更易失败。
     MIN_RRT_ITERATIONS: 1000
+
+    # [P1][次] 每周期最大采样次数，必须 >= MIN_RRT_ITERATIONS。
+    # 调大：困难场景有更多搜索机会但最坏耗时增大；调小：延迟可控但更早宣告无路径。
     MAX_RRT_ITERATIONS: 1200
+
+    # [P1][m] 高斯采样标准差，控制搜索扩散范围，必须 > 0。
+    # 调大：探索更宽、绕大障碍更容易，但有效样本密度下降；调小：更集中更快，但可能绕不过障碍。
     STD: 1.5
+
+    # [P1][m] RRT 单次扩展最大步长，必须 > 0。
+    # 调大：节点少、开阔区更快，但路径更粗且窄通道成功率下降；调小：更精细但节点/碰撞检查增多。
     STEP_SIZE: 0.3
+
+    # [P2][m] RRT* 选父节点和 rewiring 的邻域半径，必须 > 0。
+    # 调大：可能得到更短路径，但邻居/碰撞检查明显增加；调小：省 CPU，但路径通常更差。
     NEAR_RANGE: 1.0
+
+    # [P1][m] 节点距目标小于此值时视为到达，必须 > 0。
+    # 调大：更容易成功、路径末端更粗；调小：终点更准但可能需要更多采样或频繁失败。
     GOAL_TOLERANCE: 0.1
+
+    # [P1][0..1] 每次直接采样目标点的概率。
+    # 调大：开阔区更快冲向目标，但绕障探索不足；调小：探索充分但到达更慢。障碍密集时通常降低。
     GOAL_SAMPLE_RATE: 0.1
+
+    # [P1][m] RRT 输出路径和 optimal local path 的最大点间距，必须 > 0。
+    # 调大：点少、控制开销低，但选点和局部曲率更粗；调小：更平滑准确但点数/投影开销增加。
     RRT_WAYPOINT_INTERVAL: 0.2
 
+    # -------------------- optimal / RRT 模式切换 --------------------
+
+    # [P1][m] RRT 模式下允许切回 optimal reference 的最大横向距离，必须 >= 0。
+    # 调大：更早切回但可能从较远位置横切参考线；调小：更稳妥但会在 detour 模式停留更久。
     OPTIMAL_REJOIN_DISTANCE: 0.5
+
+    # [P1][s] 所有 rejoin 安全条件必须连续成立的时间，必须 >= 0。
+    # 调大：抗障碍闪烁、切换更稳但回线更慢；调小：回线更快但容易在两个模式间抖动。
     OPTIMAL_REJOIN_CLEAR_TIME: 0.75
+
+    # [P2][m] 带 progress hint 投影时向后的搜索弧长，必须 >= 0。
+    # 调大：倒车/定位回跳易恢复，但自交赛道更可能关联旧分支且更耗 CPU；调小：连续性强但恢复范围小。
     PROGRESS_SEARCH_BACKWARD: 2.0
+
+    # [P1][m] 带 progress hint 投影时向前的搜索弧长，必须 >= 0。
+    # 调大：高速跨点/大 detour 易找到前方参考，但分支歧义和 CPU 增加；调小：局部稳定但可能跟不上进度。
     PROGRESS_SEARCH_FORWARD: 8.0
+
+    # [P2][m] 局部投影误差超过此值时触发全局重新定位，必须 >= 0。
+    # 调大：不易全局跳线，但错误 hint 可能保持更久；调小：重定位快，但自交处易跳分支且搜索更频繁。
     PROJECTION_FALLBACK_DISTANCE: 2.5
 
+    # -------------------- 可插拔 controller 选择 --------------------
+
+    # [P0] steering controller：
+    #   legacy_pure_pursuit = 原 motion_planning 固定弧长目标，稳定回退配置；
+    #   pure_pursuit        = fy-code 前向采样目标 + 随车速变化的 lookahead。
+    # 切换后应先低速重调对应 lookahead，不能直接沿用另一实现的数值预期。
+    STEERING_CONTROLLER_TYPE: pure_pursuit
+
+    # [P0] 基础 speed controller：
+    #   steering_band = 原三档转角速度，允许 x,y CSV；
+    #   trajectory    = CSV nominal speed + 前方速度/制动预瞄，必须使用 x,y,speed CSV。
+    # steering 与 speed 可任意组合；安全 limiter 会在基础速度之后取最小值。
+    SPEED_CONTROLLER_TYPE: trajectory
+
+    # -------------------- fy-code PurePursuitController --------------------
+    # 以下参数只在 STEERING_CONTROLLER_TYPE=pure_pursuit 时生效。
+
+    # [P0][m] 车辆轴距，应填写实车几何而不是作为性能旋钮，必须 > 0。
+    # 填大：同一目标产生更大转角；填小：转角变小。错误值会系统性造成过转/欠转。
+    PURE_PURSUIT_WHEELBASE: 0.33
+
+    # [P1][m] 零/低速基础 lookahead，必须 > 0 且 <= MAX_LOOKAHEAD。
+    # 调大：转向平滑但切弯/纠偏慢、可能切内线；调小：跟线紧但转角抖动和过度修正增加。
+    PURE_PURSUIT_LOOKAHEAD: 0.25
+
+    # [P1][s] lookahead 随速度增加的增益：lookahead = base + gain * speed，必须 >= 0。
+    # 调大：高速更早看远、更平滑但更易切弯；调小：高速仍跟近点，响应快但可能振荡。
+    PURE_PURSUIT_LOOKAHEAD_SPEED_GAIN: 0.05
+
+    # [P1][m] 动态 lookahead 上限，必须 >= PURE_PURSUIT_LOOKAHEAD。
+    # 调大：高速更平滑但更迟钝；调小：高速更灵敏但方向变化更频繁。
+    PURE_PURSUIT_MAX_LOOKAHEAD: 0.40
+
+    # [P0][rad] fy-code controller 输出转角绝对值上限，必须 > 0。
+    # 调大：急弯能力增强但甩尾/执行器饱和风险上升；调小：稳定但可能无法通过最小半径弯道。
+    PURE_PURSUIT_MAX_STEERING: 0.42
+
+    # -------------------- TrajectorySpeedController --------------------
+    # 以下参数只在 SPEED_CONTROLLER_TYPE=trajectory 时生效。
+
+    # [P0][m/s] trajectory controller 的最终硬速度上限，必须 > 0。
+    # 调大：圈速和风险同时上升；调小：全局保守。首次实车应先调低，再逐步增加。
+    TRAJECTORY_SPEED_MAX: 3.0
+
+    # [P1][0..1] 大转角时 steering speed scale 的下限。
+    # 调大：急弯仍保留更多速度、风险高；调小：大转角减速更多。它不是最终最小车速。
+    TRAJECTORY_SPEED_MINIMUM_STEERING_SCALE: 0.50
+
+    # [P1][m] 前方 nominal speed / braking envelope 的预览距离，必须 > 0。
+    # 调大：更早看到慢速弯并提前制动，但可能保守；调小：加速积极但制动更晚。
+    TRAJECTORY_SPEED_PREVIEW_DISTANCE: 2.5
+
+    # [P0][m/s^2] 制动包络允许的最大减速度，必须 > 0。
+    # 调大：系统认为能重刹，允许更晚、更高速接近慢速点；调小：提前降速。必须按实测制动能力设定。
+    TRAJECTORY_SPEED_MAX_DECELERATION: 4.0
+
+    # [P1][1/m] 最近轨迹距离对速度缩放的增益，必须 >= 0。
+    # 调大：偏离轨迹时降速更快；调小：偏离时仍保持速度。定位噪声大时过高会造成速度抖动。
+    TRAJECTORY_SPEED_CROSS_TRACK_ERROR_GAIN: 1.5
+
+    # [P0][0..1] tracking speed scale 下限，偏差再大也不会因 tracking scale 低于本值。
+    # 调大：脱线时仍高速、恢复快但风险大；调小：脱线时可显著降速。无前向目标仍会强制停车。
+    TRAJECTORY_SPEED_MINIMUM_TRACKING_SCALE: 0.35
+
+    # [P1][rad] 计算 steering ratio 的归一化转角；它不限制 steering 输出，必须 > 0。
+    # 调大：同一实际转角被视为较小、减速少；调小：同一转角触发更多减速。通常接近车辆最大转角。
+    TRAJECTORY_SPEED_MAX_STEERING: 0.42
+
+    # -------------------- 独立 safety speed limiter --------------------
+
+    # [P0] 是否只对“实际 RRT detour path”启用局部曲率限速。
+    # true 更安全，尤其 steering_band 无轨迹速度预瞄时；false 保持旧行为并减少少量计算。
+    CURVATURE_SPEED_LIMITER_ENABLED: true
+
+    # [P0][m/s^2] 曲率限速允许的最大横向加速度：v <= sqrt(a_lat / |curvature|)，必须 > 0。
+    # 调大：RRT 弯中允许更高速度、侧滑风险上升；调小：所有 RRT 弯道更慢。应由轮胎/地面实测确定。
+    CURVATURE_MAX_LATERAL_ACCELERATION: 5.0
+
+    # [P0] RRT 找不到绕行路径时，是否启用沿 blocked optimal path 的 LiDAR 安全限速。
+    # 建议始终 true；false 会移除这层距离停车保护，只适合隔离故障测试。
+    BLOCKED_PATH_SPEED_LIMITER_ENABLED: true
+
+    # [P0][m] 障碍前预留停车距离，必须 >= 0。
+    # 调大：更早降为 0、更安全但容易停得过远；调小：更靠近障碍才停，碰撞余量减小。
     BLOCKED_PATH_STOP_DISTANCE: 0.50
+
+    # [P1][1/s] blocked cap：limit=max(0,(collision_distance-stop_distance)*gain)，必须 > 0。
+    # 调大：相同障碍距离下允许速度更高、减速区更短；调小：更早保持低速。不要误当成“越大越安全”。
     BLOCKED_PATH_SPEED_GAIN: 2.0

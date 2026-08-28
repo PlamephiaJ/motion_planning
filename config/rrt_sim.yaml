@@ -1,71 +1,138 @@
-# Simulator-specific launch topology, ROS interfaces, frames, vehicle tuning,
-# speed profile, and waypoint source. Shared planner settings are in
-# rrt_common.yaml.
+# 仿真专用：启动拓扑、ROS 接口、TF、车辆差异参数和 waypoint 文件。
+# 未在这里出现的规划/控制参数继承 rrt_common.yaml；同名参数以本文件为准。
+#
+# 现场/仿真调参优先看：
+#   P0：topic、TF、waypoint、车辆速度上限和 MARGIN；配置错误可能直接不动或碰撞。
+#   P1：lookahead、PID_P、速度档位阈值、感知范围；决定跟踪和避障表现。
+#   P2：可视化颜色、node_name 等运维参数，不改变算法性能。
+# launch.vehicles 每项还可加 `enabled: false` 临时禁用该车；默认 true。
+# launch 可选覆盖：`config:=PATH` 换环境文件，`common_config:=PATH` 换公共文件，
+# `waypoint_file:=PATH` 会覆盖所有已启动车辆的 waypoint；双车要不同轨迹时不要使用全局覆盖。
 launch:
+  # [P2] 只允许 1 或 2：启动 enabled 列表中的前一辆或前两辆车。
+  # 从 2 改 1 会只启动 ego，降低 CPU；从 1 改 2 会增加第二套 RRT/地图/控制负载。
   vehicle_mode: 2
   vehicles:
+    # -------------------- ego vehicle --------------------
     - namespace: ego_racecar
+      # [P2] ROS namespace/node name 只影响节点和相对 topic 名称；改动后运维脚本需同步。
       node_name: rrt_node
       ros__parameters:
-        # Vehicle state only; global pose still comes from TF.
+        # [P0] odometry 只提供当前速度/角速度，pose 始终来自 map -> vehicle_frame TF。
+        # 名称错误：速度反馈保持默认/旧值，动态 lookahead 和速度控制不可信。
         odometry_topic: /ego_racecar/odom
+
+        # [P0] 静态 OccupancyGrid；名称错误时 planner 一直等待地图，不会正常规划。
         map_topic: /map
+
+        # [P0] 本车 LiDAR；名称错误时动态障碍和 blocked-path 保护失效。
         scan_topic: /scan
+
+        # [P2] 本节点发布的融合动态地图；改名只影响订阅者和调试工具。
         dynamic_map_topic: /ego_racecar/dynamic_map
+
+        # [P0] Ackermann 命令输出；必须指向本车，填错可能控制错误车辆或完全不动。
         drive_topic: /drive
+
+        # [P1] 本车独立 start/stop 控制 topic；改名后启动脚本/上位机需同步。
         control_topic: /ego_racecar/control
 
-        # Each vehicle may follow a different reference path.
+        # [P0] 本车闭环参考轨迹。trajectory speed controller 要求 CSV 为 x,y,speed；
+        # steering_band 可使用 x,y，缺失 speed 时内部以 SPEED_STRAIGHT 填充。
+        # 换文件会改变 global goal、optimal path 和 RRT detour 对应的 nominal speed。
         waypoint_file_path: /home/plamephia/workspace/sim_ws/waypoint/Spielberg_map/Spielberg_clockwise_20260828_103001.csv
 
-        # Simulator localization is consumed through the same TF interface.
+        # [P0] TF frame 必须与仿真发布完全一致，通常不要通过调参改变。
+        # map_frame 是全局规划坐标；laser_frame 错误会错投影障碍；vehicle_frame 错误会错算位姿/转向。
         map_frame: map
         laser_frame: ego_racecar/laser
         vehicle_frame: ego_racecar/base_link
 
+        # [P0][m/s] steering_band 三档速度，要求 STRAIGHT >= MEDIUM >= SHARP > 0。
+        # 各值调大：对应转角区间更快、圈速和风险上升；调小：对应区间更保守。
+        # 若使用 x,y CSV，这里的 STRAIGHT 还会作为内部 nominal-speed 占位值。
         SPEED_STRAIGHT: 5.0
         SPEED_MEDIUM_TURN: 3.0
         SPEED_SHARP_TURN: 1.5
+
+        # [P2][RGB 0..1] 路径/目标/RRT 分支主色与 lookahead/RRT 节点强调色；只影响 RViz。
         VISUALIZATION_PRIMARY_COLOR: [0.10, 0.65, 1.00]
         VISUALIZATION_ACCENT_COLOR: [0.00, 1.00, 0.65]
 
+    # -------------------- opponent vehicle --------------------
     - namespace: opp_racecar
+      # [P2] 改 namespace/node_name 后，所有相对 topic 和控制脚本目标也要同步。
       node_name: rrt_node
       ros__parameters:
-        # Vehicle state only; global pose still comes from TF.
+        # [P0] 第二辆车的速度状态输入；pose 不使用 odometry，而使用下方 TF。
         odometry_topic: /opp_racecar/odom
+        # [P0] 两车可共用静态地图，但不能误用对方 scan/drive/control。
         map_topic: /map
         scan_topic: /opp_scan
+        # [P2] 第二辆车动态地图输出，只影响观测/调试订阅者。
         dynamic_map_topic: /opp_racecar/dynamic_map
+        # [P0] 第二辆车 Ackermann 输出和独立控制入口。
         drive_topic: /opp_drive
         control_topic: /opp_racecar/control
 
-        # Set this independently from the ego vehicle when needed.
+        # [P0] 第二辆车参考轨迹；当前 filtered.csv 仅有 x,y，因此只能直接配 steering_band。
+        # 若切 trajectory，必须换成 x,y,speed CSV，否则节点会在启动时明确报错并退出。
         waypoint_file_path: /home/plamephia/workspace/sim_ws/waypoint/Spielberg_map/filtered.csv
 
-        # Simulator localization is consumed through the same TF interface.
+        # [P0] 第二辆车 TF frame，任何一个填错都会造成障碍或车辆位姿变换错误。
         map_frame: map
         laser_frame: opp_racecar/laser
         vehicle_frame: opp_racecar/base_link
 
+        # [P0][m/s] 第二辆车 steering_band 三档速度；约束和调大/调小后果与 ego 相同。
+        # 目前整体低于 ego，可减少对手车失控对 ego 测试的干扰。
         SPEED_STRAIGHT: 3.0
         SPEED_MEDIUM_TURN: 2.0
         SPEED_SHARP_TURN: 1.0
+
+        # [P2][RGB 0..1] 只影响 RViz，用不同颜色区分两辆车，不改变控制。
         VISUALIZATION_PRIMARY_COLOR: [1.00, 0.42, 0.05]
         VISUALIZATION_ACCENT_COLOR: [1.00, 0.05, 0.55]
 
 rrt_node:
   ros__parameters:
+    # [P0] 是否使用 /clock。仿真暂停/回放需要 true；当前仿真若使用系统时间则保持 false。
+    # 选错会导致 timer、障碍过期和 rejoin clear time 与仿真时间不一致。
     use_sim_time: false
+
+    # [P1] 所有车辆共用的 start/stop topic；改名后 startrun.sh/stoprun.sh 需同步。
     fleet_control_topic: /rrt/control
+
+    # [P0] true=节点启动后立即允许发非零速度；false=等待 start 消息。现场建议 false。
     start_on_launch: false
 
-    # Vehicle/perception geometry and controller tuning.
+    # [P0][m] 静态地图障碍膨胀距离，必须 >= 0。
+    # 调大：离墙更远、更安全但通道变窄/可能无路；调小：可用空间增加但擦墙风险上升。
     MARGIN: 0.2
+
+    # [P1][m] 沿 optimal trajectory 选择 global goal 的前向距离，必须 > 0。
+    # 调大：RRT 看得更远、路径连贯但搜索更难更慢；调小：局部搜索容易但短视、重规划更频繁。
     DISTANCE_GOAL_AHEAD: 3.5
+
+    # [P1][m] 接受 LiDAR hit 的最大距离，必须 > 0。
+    # 调大：更早看到障碍但点数/噪声/CPU 增加；调小：地图干净但高速时发现障碍过晚。
     SCAN_RANGE: 6.0
+
+    # [P0][m] 动态障碍点额外膨胀距离，必须 >= 0。
+    # 调大：绕行间距更安全但可行空间减少；调小：更容易通过但与动态障碍距离更近。
     DETECTED_OBS_MARGIN: 0.22
+
+    # [P1][m] 仅 legacy_pure_pursuit 生效的固定弧长 lookahead，必须 > 0。
+    # 调大：转向平滑但切弯/纠偏慢；调小：跟线紧但可能振荡。换 controller 后本项不生效。
     DISTANCE_LOOK_AHEAD: 0.8
+
+    # [P1] 仅 legacy_pure_pursuit 生效的转向比例增益，必须 > 0。
+    # 调大：同一横向目标转角更大、响应激进；调小：平滑但易欠转。需与 LOOK_AHEAD 联调。
     PID_P: 0.25
+
+    # [P1][deg] 仅 steering_band 生效，要求 0 <= LOW < MEDIUM。
+    # LOW 调大：更多弯仍用 SPEED_STRAIGHT；调小：更早进入中速档。
     SPEED_LOW_STEERING_THRESHOLD_DEGREES: 10.0
+
+    # [P1][deg] MEDIUM 调大：更多弯使用中速而不是低速；调小：更早进入 SPEED_SHARP_TURN。
     SPEED_MEDIUM_STEERING_THRESHOLD_DEGREES: 20.0

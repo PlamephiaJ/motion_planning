@@ -2,10 +2,13 @@
 #define MOTION_PLANNING__RRT_HPP_
 
 #include "motion_planning/Visualization.hpp"
+#include "motion_planning/controllers.hpp"
 #include "motion_planning/dynamic_obstacle_map.hpp"
 #include "motion_planning/path_tracking.hpp"
+#include "motion_planning/reference_trajectory.hpp"
 #include "motion_planning/reference_path_manager.hpp"
 #include "motion_planning/rrt_star_planner.hpp"
+#include "motion_planning/speed_limiters.hpp"
 
 #include "ackermann_msgs/msg/ackermann_drive_stamped.hpp"
 #include "geometry_msgs/msg/pose.hpp"
@@ -75,7 +78,14 @@ private:
     double lookahead_distance_ = 0.4;
     double pursuit_gain_ = 0.25;
     double steering_limit_ = 0.41;
-    path_tracking::SpeedProfile speed_profile_;
+    std::string steering_controller_type_ = "legacy_pure_pursuit";
+    std::string speed_controller_type_ = "steering_band";
+    motion_control::SteeringBandSpeedConfig steering_band_speed_config_;
+    motion_control::PurePursuitConfig pure_pursuit_config_;
+    motion_control::TrajectorySpeedConfig trajectory_speed_config_;
+    motion_control::CurvatureSpeedLimiterConfig curvature_limiter_config_;
+    bool curvature_speed_limiter_enabled_ = false;
+    bool blocked_path_speed_limiter_enabled_ = true;
     std::vector<double> visualization_primary_color_{0.1, 0.65, 1.0};
     std::vector<double> visualization_accent_color_{0.0, 1.0, 0.65};
 
@@ -149,7 +159,21 @@ private:
     // Focused algorithm/state modules.
     dynamic_obstacles::MapLayer obstacle_map_;
     std::unique_ptr<reference_path::Manager> reference_manager_;
+    std::unique_ptr<reference_trajectory::ReferenceTrajectory>
+        reference_trajectory_;
     std::unique_ptr<rrt_star::Planner> planner_;
+    std::unique_ptr<motion_control::LegacyPurePursuitController>
+        legacy_pure_pursuit_controller_;
+    std::unique_ptr<motion_control::PurePursuitController>
+        pure_pursuit_controller_;
+    std::unique_ptr<motion_control::SteeringBandSpeedController>
+        steering_band_speed_controller_;
+    std::unique_ptr<motion_control::TrajectorySpeedController>
+        trajectory_speed_controller_;
+    std::unique_ptr<motion_control::CurvatureSpeedLimiter>
+        curvature_speed_limiter_;
+    std::unique_ptr<motion_control::BlockedPathSpeedLimiter>
+        blocked_path_speed_limiter_;
     std::vector<geometry_msgs::msg::Point> global_waypoints_;
     geometry_msgs::msg::Pose current_global_pose_;
 
@@ -169,7 +193,6 @@ private:
     std::string vehicle_frame_ = "base_link";
     geometry_msgs::msg::TransformStamped laser_to_map_;
     geometry_msgs::msg::TransformStamped vehicle_to_map_;
-    geometry_msgs::msg::TransformStamped map_to_vehicle_;
 
     /** Refresh the laser-to-map transform required by scan projection. */
     bool lookup_laser_transform();
@@ -181,16 +204,13 @@ private:
     geometry_msgs::msg::Point laser_point_to_map(
         const geometry_msgs::msg::Point& laser_point) const;
 
-    /** Transform one point from map frame to vehicle frame. */
-    geometry_msgs::msg::Point map_point_to_vehicle(
-        const geometry_msgs::msg::Point& map_point) const;
-
     /**
      * Convert a planned path into one drive command and publish visualization.
      * Empty paths produce a stop command.
      */
     void follow_path(
-        const nav_msgs::msg::Path& path,
+        const reference_trajectory::Path& path,
+        bool is_rrt_detour,
         std::optional<double> speed_limit = std::nullopt);
 
     /** Slow along a blocked optimal reference after RRT* planning fails. */

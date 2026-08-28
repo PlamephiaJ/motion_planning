@@ -13,8 +13,11 @@ contracts for every interface.
 | RRT node/tree geometry, nearest, steer, near, reparent, path tracing | `include/motion_planning/rrt_tree.hpp` | `src/rrt_tree.cpp` |
 | RRT* sampling and planning loop | `include/motion_planning/rrt_star_planner.hpp` | `src/rrt_star_planner.cpp` |
 | Optimal trajectory arc length, progress projection, sampling, slicing | `include/motion_planning/optimal_trajectory.hpp` | `src/optimal_trajectory.cpp` |
+| Position/nominal-speed pairing and RRT reference-speed association | `include/motion_planning/reference_trajectory.hpp` | `src/reference_trajectory.cpp` |
 | Optimal-reference/RRT-detour mode switching and safe rejoin | `include/motion_planning/reference_path_manager.hpp` | `src/reference_path_manager.cpp` |
-| Local-path conversion/resampling, arc-length lookahead, Pure Pursuit, speed | `include/motion_planning/path_tracking.hpp` | `src/path_tracking.cpp` |
+| Selectable Pure Pursuit and base speed controllers | `include/motion_planning/controllers.hpp` | `src/controllers.cpp` |
+| Curvature and blocked-path safety speed limiters | `include/motion_planning/speed_limiters.hpp` | `src/speed_limiters.cpp` |
+| Local-path conversion/resampling and compatibility helpers | `include/motion_planning/path_tracking.hpp` | `src/path_tracking.cpp` |
 | LaserScan filtering plus static/live obstacle-layer lifetime | `include/motion_planning/dynamic_obstacle_map.hpp` | `src/dynamic_obstacle_map.cpp` |
 | Occupancy coordinates, inflation, segment/polyline collision, root escape | `include/motion_planning/occupancy_grid.hpp` | `src/occupancy_grid.cpp` |
 | Waypoint CSV input | `include/motion_planning/FileHandler.hpp` | `src/FileHandler.cpp` |
@@ -30,9 +33,12 @@ contracts for every interface.
 3. If the optimal arc is clear, the local optimal reference is used directly.
 4. If it is blocked, `rrt_star::Planner::plan()` builds a local detour to the
    same progress-based global goal.
-5. `path_tracking` selects the short arc-length lookahead target and computes
-   steering/speed on whichever local reference is active.
-6. `RRT` publishes the path/tree markers and Ackermann command.
+5. `ReferenceTrajectory` associates every local optimal or RRT point with the
+   nominal speed interpolated from the same CSV position/speed samples.
+6. The configured steering controller and speed controller independently
+   consume that paired local path. Enabled safety limiters are composed by
+   taking the minimum speed.
+7. `RRT` publishes the path/tree markers and Ackermann command.
 
 The configured `odometry_topic` is a separate vehicle-state input. Its
 `twist.twist.linear.x` and `twist.twist.angular.z` update current speed and yaw
@@ -125,6 +131,25 @@ Each vehicle entry also owns its `SPEED_STRAIGHT`, `SPEED_MEDIUM_TURN`, and
 `SPEED_SHARP_TURN` values in metres per second. The shared low/medium steering
 thresholds select between those three levels. Speed values must satisfy
 `straight >= medium turn >= sharp turn > 0`.
+
+Controller selection is independent:
+
+- `STEERING_CONTROLLER_TYPE: legacy_pure_pursuit` preserves the original
+  fixed-lookahead `motion_planning` behavior; `pure_pursuit` selects the
+  fy-code forward-sample implementation and its speed-dependent lookahead.
+- `SPEED_CONTROLLER_TYPE: steering_band` preserves the original three speed
+  bands; `trajectory` uses the CSV nominal speed plus fy-code forward braking
+  preview. The latter requires an `x,y,speed` CSV.
+- `CURVATURE_SPEED_LIMITER_ENABLED` independently applies the fy-code lateral
+  acceleration formula to the actual RRT detour path only.
+- `BLOCKED_PATH_SPEED_LIMITER_ENABLED` controls the existing LiDAR-only safety
+  cap. It is enabled by default.
+
+The shipped defaults select `legacy_pure_pursuit`, `steering_band`, curvature
+limiting off, and blocked-path limiting on, so reverting to the established
+controller behavior is a configuration-only operation. For legacy speed-band
+operation an `x,y` CSV remains accepted; its internal nominal-speed entries are
+filled with `SPEED_STRAIGHT` solely to preserve the paired-path invariant.
 
 Each vehicle also has an RGB `VISUALIZATION_PRIMARY_COLOR` for its path, goal,
 and RRT branches, plus a `VISUALIZATION_ACCENT_COLOR` for its lookahead point

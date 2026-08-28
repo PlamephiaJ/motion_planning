@@ -1,49 +1,105 @@
-# Real-car ROS interfaces and conservative initial vehicle tuning. Shared
-# planner settings are in rrt_common.yaml. External PF, LiDAR, map, mux, and TF
-# publishers are not launched or modified here.
+# 实车专用：ROS 接口、TF、保守初始速度和车辆差异参数。
+# 规划/控制公共参数继承 rrt_common.yaml；本文件同名项会覆盖公共值。
+# 本 launch 不启动或修改 PF、LiDAR、map、mux、TF 发布者。
+#
+# 实车推荐顺序：
+#   1. [P0] 架空轮胎确认 drive/control/stop，核对 TF 和转角正负；
+#   2. [P0] 用低速核对地图膨胀、动态障碍膨胀和停车距离；
+#   3. [P1] 只调 steering，稳定后再逐档提高 speed；
+#   4. 最后启用 trajectory speed / curvature limiter 并逐步放宽限制。
+# launch.vehicles 每项可加 `enabled: false` 临时禁用，默认 true。
+# launch 可选覆盖：`config:=PATH` 换环境文件，`common_config:=PATH` 换公共文件，
+# `waypoint_file:=PATH` 覆盖所有启动车辆的轨迹；实车通常用它提供地图对应 CSV。
 launch:
+  # [P2] 只允许 1 或 2；实车默认仅启动列表中的第一辆车。
+  # 增加到 2 前必须添加第二套完整且不冲突的 topic/TF/waypoint 配置。
   vehicle_mode: 1
   vehicles:
     - namespace: ''
+      # [P2] 根 namespace 下的节点名。改名只影响节点管理；外部监控规则需同步。
       node_name: rrt_node
       ros__parameters:
-        # Vehicle state only; pose from this message is intentionally ignored.
+        # [P0] 只从 odometry 读取线速度/角速度，pose 始终来自 map -> vehicle_frame TF。
+        # 填错会让动态 lookahead/速度控制缺少真实车速，但不会切换定位来源。
         odometry_topic: /odom
+
+        # [P0] 静态 OccupancyGrid；填错时 planner 等不到地图，车辆不会正常规划。
         map_topic: /map
+
+        # [P0] 本车 LiDAR；填错时动态障碍、RRT 触发和 blocked-path 保护失效。
         scan_topic: /scan
+
+        # [P2] 融合后的动态碰撞地图输出；改名只影响 RViz/诊断订阅者。
         dynamic_map_topic: /motion_planning/dynamic_map
+
+        # [P0] Ackermann 命令输出，必须经过正确 mux/安全链；填错可能完全不动或误控设备。
         drive_topic: /drive
+
+        # [P1] 本车 start/stop 控制 topic；改名后现场控制脚本需同步。
         control_topic: /motion_planning/control
 
-        # The localization source is abstracted behind these TF frames.
+        # [P0] TF frame 必须与实车 TF 树完全一致，通常不要作为性能参数调整。
+        # laser_frame 错误会错投影障碍；vehicle_frame 错误会错算全局位姿和转向。
         map_frame: map
         laser_frame: laser
         vehicle_frame: base_link
 
-        # Deliberately conservative until validated on the physical vehicle.
+        # [P0][m/s] steering_band 三档速度，要求 STRAIGHT >= MEDIUM >= SHARP > 0。
+        # 各值调大：对应转角范围内更快、制动距离和侧滑风险上升；调小：更保守。
+        # 首次实车保持低值，按 sharp -> medium -> straight 的顺序逐档验证。
         SPEED_STRAIGHT: 1.5
         SPEED_MEDIUM_TURN: 1.0
         SPEED_SHARP_TURN: 0.5
+
+        # [P2][RGB 0..1] 只影响 RViz 标记颜色，不影响规划和控制。
         VISUALIZATION_PRIMARY_COLOR: [0.10, 0.65, 1.00]
         VISUALIZATION_ACCENT_COLOR: [0.00, 1.00, 0.65]
 
 rrt_node:
   ros__parameters:
+    # [P0] true 时使用 /clock；普通实车应 false。选错会使 timer/障碍过期/rejoin 计时异常。
     use_sim_time: false
+
+    # [P1] 多车共用 start/stop topic；单车时可与 control_topic 相同。
+    # 改名后 startrun.sh/stoprun.sh 或上位机发布目标需同步。
     fleet_control_topic: /motion_planning/control
+
+    # [P0] true=节点启动即允许发非零速度；false=必须收到 start。实车强烈建议 false。
     start_on_launch: false
 
-    # A real map-specific trajectory is required. Keeping this empty prevents
-    # an accidental launch with simulator or test waypoints. Supply it with:
+    # [P0] 实车地图对应的闭环参考轨迹。留空可防止误用仿真轨迹，启动时必须覆盖：
     #   ros2 launch motion_planning rrt_real.launch.py waypoint_file:=/path.csv
+    # trajectory speed controller 必须使用 x,y,speed CSV；steering_band 可使用 x,y CSV。
+    # 换文件会同时改变 optimal path、global goal 和 RRT detour 所关联的 nominal speed。
     waypoint_file_path: ''
 
-    # Vehicle/perception geometry and controller tuning.
+    # [P0][m] 静态地图障碍膨胀距离，必须 >= 0。
+    # 调大：离墙更远但窄通道可能被封死；调小：可行空间增加但定位误差/擦墙余量减少。
     MARGIN: 0.2
+
+    # [P1][m] optimal trajectory 上的 global goal 前视距离，必须 > 0。
+    # 调大：RRT 路径更长更连贯但搜索慢；调小：搜索容易但更短视、重规划更频繁。
     DISTANCE_GOAL_AHEAD: 3.5
+
+    # [P1][m] 接受 LiDAR hit 的最大距离，必须 > 0。
+    # 调大：高速下更早看到障碍但噪声/点数/CPU 增加；调小：地图干净但可能发现过晚。
     SCAN_RANGE: 4.0
+
+    # [P0][m] 动态障碍额外膨胀距离，必须 >= 0。
+    # 调大：安全间距增加但绕行空间减少；调小：更易通过但对定位/检测误差更敏感。
     DETECTED_OBS_MARGIN: 0.22
+
+    # [P1][m] 仅 legacy_pure_pursuit 生效的固定 lookahead，必须 > 0。
+    # 调大：平滑但切弯/纠偏慢；调小：跟线紧但可能振荡。先低速从大到小逐步收紧。
     DISTANCE_LOOK_AHEAD: 0.8
+
+    # [P1] 仅 legacy_pure_pursuit 生效的转向比例增益，必须 > 0。
+    # 调大：转向更激进、可能摆振；调小：平滑但易欠转。应与 DISTANCE_LOOK_AHEAD 联调。
     PID_P: 0.25
+
+    # [P1][deg] 仅 steering_band 生效，要求 0 <= LOW < MEDIUM。
+    # LOW 调大：更多弯仍使用直线高速档；调小：更早进入中速档，更安全。
     SPEED_LOW_STEERING_THRESHOLD_DEGREES: 10.0
+
+    # [P1][deg] 调大：更多弯使用中速而非低速；调小：更早进入 sharp 低速档。
     SPEED_MEDIUM_STEERING_THRESHOLD_DEGREES: 20.0

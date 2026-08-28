@@ -39,13 +39,16 @@ include_directories(
 # Algorithm modules are kept in a ROS-node-independent static library so they
 # can be tested and optimized without constructing an rclcpp::Node.
 add_library(motion_planning_core STATIC
+  src/controllers.cpp
   src/dynamic_obstacle_map.cpp
   src/occupancy_grid.cpp
   src/optimal_trajectory.cpp
   src/path_tracking.cpp
+  src/reference_trajectory.cpp
   src/reference_path_manager.cpp
   src/rrt_star_planner.cpp
-  src/rrt_tree.cpp)
+  src/rrt_tree.cpp
+  src/speed_limiters.cpp)
 target_include_directories(motion_planning_core PUBLIC include)
 ament_target_dependencies(motion_planning_core
   geometry_msgs nav_msgs sensor_msgs tf2 tf2_geometry_msgs)
@@ -87,6 +90,12 @@ if(BUILD_TESTING)
   target_include_directories(test_path_tracking PRIVATE include)
   target_link_libraries(test_path_tracking motion_planning_core)
   ament_target_dependencies(test_path_tracking geometry_msgs nav_msgs)
+
+  ament_add_gtest(test_control_modules
+    test/test_control_modules.cpp)
+  target_include_directories(test_control_modules PRIVATE include)
+  target_link_libraries(test_control_modules motion_planning_core)
+  ament_target_dependencies(test_control_modules geometry_msgs nav_msgs)
 
   ament_add_gtest(test_planning_modules
     test/test_planning_modules.cpp)
