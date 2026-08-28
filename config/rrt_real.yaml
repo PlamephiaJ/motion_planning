@@ -30,7 +30,7 @@ launch:
         scan_topic: /scan
 
         # [P2] 融合后的动态碰撞地图输出；改名只影响 RViz/诊断订阅者。
-        dynamic_map_topic: /motion_planning/dynamic_map
+        dynamic_map_topic: motion_planning/dynamic_map
 
         # [P0] Ackermann 命令输出，必须经过正确 mux/安全链；填错可能完全不动或误控设备。
         drive_topic: /drive
@@ -51,9 +51,13 @@ launch:
         SPEED_MEDIUM_TURN: 1.0
         SPEED_SHARP_TURN: 0.5
 
-        # [P2][RGB 0..1] 只影响 RViz 标记颜色，不影响规划和控制。
-        VISUALIZATION_PRIMARY_COLOR: [0.10, 0.65, 1.00]
-        VISUALIZATION_ACCENT_COLOR: [0.00, 1.00, 0.65]
+        # [P2] tracking path/goal 用暖色，与蓝色 global trajectory 明确分离。
+        # PRIMARY/ACCENT 是不透明 RGB；其余三项是带透明度的 RGBA。
+        VISUALIZATION_PRIMARY_COLOR: [1.00, 0.20, 0.03]
+        VISUALIZATION_ACCENT_COLOR: [1.00, 0.82, 0.00]
+        VISUALIZATION_GLOBAL_TRAJECTORY_COLOR: [0.05, 0.35, 0.95, 0.60]
+        VISUALIZATION_TREE_NODE_COLOR: [0.78, 0.84, 0.92, 0.25]
+        VISUALIZATION_TREE_BRANCH_COLOR: [0.68, 0.75, 0.84, 0.16]
 
 rrt_node:
   ros__parameters:
@@ -65,33 +69,33 @@ rrt_node:
     fleet_control_topic: /motion_planning/control
 
     # [P0] true=节点启动即允许发非零速度；false=必须收到 start。实车强烈建议 false。
-    start_on_launch: false
+    start_on_launch: true
 
     # [P0] 实车地图对应的闭环参考轨迹。留空可防止误用仿真轨迹，启动时必须覆盖：
     #   ros2 launch motion_planning rrt_real.launch.py waypoint_file:=/path.csv
     # trajectory speed controller 必须使用 x,y,speed CSV；steering_band 可使用 x,y CSV。
     # 换文件会同时改变 optimal path、global goal 和 RRT detour 所关联的 nominal speed。
-    waypoint_file_path: ''
+    waypoint_file_path: '/home/jetsonblue/yuhao/vtc26_ws/map_process/map_20260827/map_20260827_clockwise_20260828_134542.csv'
 
     # [P0][m] 静态地图障碍膨胀距离，必须 >= 0。
     # 调大：离墙更远但窄通道可能被封死；调小：可行空间增加但定位误差/擦墙余量减少。
-    MARGIN: 0.2
+    MARGIN: 0.1
 
     # [P1][m] optimal trajectory 上的 global goal 前视距离，必须 > 0。
     # 调大：RRT 路径更长更连贯但搜索慢；调小：搜索容易但更短视、重规划更频繁。
-    DISTANCE_GOAL_AHEAD: 3.5
+    DISTANCE_GOAL_AHEAD: 1.0
 
     # [P1][m] 接受 LiDAR hit 的最大距离，必须 > 0。
     # 调大：高速下更早看到障碍但噪声/点数/CPU 增加；调小：地图干净但可能发现过晚。
-    SCAN_RANGE: 4.0
+    SCAN_RANGE: 3.0
 
     # [P0][m] 动态障碍额外膨胀距离，必须 >= 0。
     # 调大：安全间距增加但绕行空间减少；调小：更易通过但对定位/检测误差更敏感。
-    DETECTED_OBS_MARGIN: 0.22
+    DETECTED_OBS_MARGIN: 0.1
 
     # [P1][m] 仅 legacy_pure_pursuit 生效的固定 lookahead，必须 > 0。
     # 调大：平滑但切弯/纠偏慢；调小：跟线紧但可能振荡。先低速从大到小逐步收紧。
-    DISTANCE_LOOK_AHEAD: 0.8
+    DISTANCE_LOOK_AHEAD: 0.5
 
     # [P1] 仅 legacy_pure_pursuit 生效的转向比例增益，必须 > 0。
     # 调大：转向更激进、可能摆振；调小：平滑但易欠转。应与 DISTANCE_LOOK_AHEAD 联调。

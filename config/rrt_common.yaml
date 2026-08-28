@@ -170,7 +170,7 @@ rrt_node:
 
     # [P0][m/s] trajectory controller 的最终硬速度上限，必须 > 0。
     # 调大：圈速和风险同时上升；调小：全局保守。首次实车应先调低，再逐步增加。
-    TRAJECTORY_SPEED_MAX: 5.0
+    TRAJECTORY_SPEED_MAX: 1.0
 
     # [P1][0..1] 大转角时 steering speed scale 的下限。
     # 调大：急弯仍保留更多速度、风险高；调小：大转角减速更多。它不是最终最小车速。

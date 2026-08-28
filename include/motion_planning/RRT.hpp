@@ -91,6 +91,12 @@ private:
     bool lqg_enabled_ = true;
     std::vector<double> visualization_primary_color_{0.1, 0.65, 1.0};
     std::vector<double> visualization_accent_color_{0.0, 1.0, 0.65};
+    std::vector<double> visualization_global_trajectory_color_{
+        0.1, 0.65, 1.0, 1.0};
+    std::vector<double> visualization_tree_node_color_{
+        0.0, 1.0, 0.65, 1.0};
+    std::vector<double> visualization_tree_branch_color_{
+        0.1, 0.65, 1.0, 1.0};
 
     // Dynamic-obstacle rolling window.
     double dynamic_obstacle_persistence_ = 0.3;
@@ -105,7 +111,7 @@ private:
     std::string odometry_topic_ = "/odom";
     std::string map_topic_ = "/map";
     std::string scan_topic_ = "/scan";
-    std::string dynamic_map_topic_ = "/ego_racecar/dynamic_map";
+    std::string dynamic_map_topic_ = "motion_planning/dynamic_map";
     std::string drive_topic_ = "/drive";
     std::string control_topic_ = "/ego_racecar/control";
     std::string fleet_control_topic_ = "/rrt/control";

@@ -159,17 +159,24 @@ curvature limiting. For legacy speed-band operation an `x,y` CSV remains
 accepted; its internal nominal-speed entries are filled with `SPEED_STRAIGHT`
 solely to preserve the paired-path invariant.
 
-Each vehicle also has an RGB `VISUALIZATION_PRIMARY_COLOR` for its path, goal,
-and RRT branches, plus a `VISUALIZATION_ACCENT_COLOR` for its lookahead point
-and RRT nodes. The default ego palette is blue/cyan and the opponent palette is
-orange/magenta.
+Each vehicle has RGB `VISUALIZATION_PRIMARY_COLOR` and
+`VISUALIZATION_ACCENT_COLOR` values for its path/goal and lookahead point.
+Separate RGBA `VISUALIZATION_GLOBAL_TRAJECTORY_COLOR`,
+`VISUALIZATION_TREE_NODE_COLOR`, and `VISUALIZATION_TREE_BRANCH_COLOR` values
+allow the global reference and RRT search tree to use independent colors and
+opacity. Their defaults match the original default primary/accent palette; the
+simulator lists per-vehicle RGBA values explicitly to retain both original car
+palettes. The real-car configuration uses a strong warm tracking-path color, a
+blue global trajectory, and a faded pale RRT tree.
 
-Both nodes share `/map`, but keep their dynamic maps and all relative
-visualization topics inside their own namespaces. Each vehicle's configured TF
-frames identify its `base_link` and `laser`; no pose topic or localization
-implementation is part of the planning interface. The original single-car
-`launch.namespace` YAML format is still supported when `launch.vehicles` is
-absent.
+Both nodes share `/map`, but keep their dynamic maps and all visualization
+topics under the relative `motion_planning` topic namespace inside their own
+vehicle namespaces. Real-car topics therefore use `/motion_planning/...`, while
+the simulator uses `/ego_racecar/motion_planning/...` and
+`/opp_racecar/motion_planning/...`. Each vehicle's configured TF frames identify
+its `base_link` and `laser`; no pose topic or localization implementation is
+part of the planning interface. The original single-car `launch.namespace`
+YAML format is still supported when `launch.vehicles` is absent.
 
 With the default safety setting (`start_on_launch: false`), the per-vehicle
 topics still start or stop one car independently. The repository-level

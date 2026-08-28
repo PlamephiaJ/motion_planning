@@ -432,21 +432,39 @@ void RRT::load_parameters()
         "VISUALIZATION_ACCENT_COLOR", visualization_accent_color_);
     visualization_accent_color_ = this->get_parameter(
         "VISUALIZATION_ACCENT_COLOR").as_double_array();
-    const auto valid_color = [](const std::vector<double>& color)
+    this->declare_parameter(
+        "VISUALIZATION_GLOBAL_TRAJECTORY_COLOR",
+        visualization_global_trajectory_color_);
+    visualization_global_trajectory_color_ = this->get_parameter(
+        "VISUALIZATION_GLOBAL_TRAJECTORY_COLOR").as_double_array();
+    this->declare_parameter(
+        "VISUALIZATION_TREE_NODE_COLOR", visualization_tree_node_color_);
+    visualization_tree_node_color_ = this->get_parameter(
+        "VISUALIZATION_TREE_NODE_COLOR").as_double_array();
+    this->declare_parameter(
+        "VISUALIZATION_TREE_BRANCH_COLOR", visualization_tree_branch_color_);
+    visualization_tree_branch_color_ = this->get_parameter(
+        "VISUALIZATION_TREE_BRANCH_COLOR").as_double_array();
+    const auto valid_color = [](const std::vector<double>& color,
+                                const std::size_t expected_size)
         {
-            return color.size() == 3 && std::all_of(
+            return color.size() == expected_size && std::all_of(
                 color.begin(), color.end(),
                 [](const double channel)
                 {
                     return channel >= 0.0 && channel <= 1.0;
                 });
         };
-    if (!valid_color(visualization_primary_color_) ||
-        !valid_color(visualization_accent_color_))
+    if (!valid_color(visualization_primary_color_, 3) ||
+        !valid_color(visualization_accent_color_, 3) ||
+        !valid_color(visualization_global_trajectory_color_, 4) ||
+        !valid_color(visualization_tree_node_color_, 4) ||
+        !valid_color(visualization_tree_branch_color_, 4))
     {
         throw std::invalid_argument(
-            "Bad configuration. Visualization colors must be RGB arrays "
-            "with three values in [0, 1].");
+            "Bad configuration. Primary/accent visualization colors must be "
+            "RGB arrays and global-trajectory/tree colors must be RGBA arrays "
+            "with values in [0, 1].");
     }
 
     this->declare_parameter("odometry_topic", odometry_topic_);
@@ -647,19 +665,24 @@ void RRT::initialize_ros_interfaces()
     dynamic_map_publisher_ =
         this->create_publisher<nav_msgs::msg::OccupancyGrid>(dynamic_map_topic_, 1);
     path_publisher_ =
-        this->create_publisher<visualization_msgs::msg::Marker>("path", 1);
+        this->create_publisher<visualization_msgs::msg::Marker>(
+            "motion_planning/path", 1);
     tree_node_publisher_ =
-        this->create_publisher<visualization_msgs::msg::Marker>("tree_nodes", 1);
+        this->create_publisher<visualization_msgs::msg::Marker>(
+            "motion_planning/tree_nodes", 1);
     tree_branch_publisher_ =
-        this->create_publisher<visualization_msgs::msg::Marker>("tree_branches", 1);
+        this->create_publisher<visualization_msgs::msg::Marker>(
+            "motion_planning/tree_branches", 1);
     goal_publisher_ =
-        this->create_publisher<visualization_msgs::msg::Marker>("goal", 10);
+        this->create_publisher<visualization_msgs::msg::Marker>(
+            "motion_planning/goal", 10);
     const auto waypoint_qos =
         rclcpp::QoS(rclcpp::KeepLast(1)).transient_local().reliable();
     waypoint_publisher_ = this->create_publisher<visualization_msgs::msg::Marker>(
-        "global_waypoints", waypoint_qos);
+        "motion_planning/global_waypoints", waypoint_qos);
     lookahead_publisher_ =
-        this->create_publisher<visualization_msgs::msg::Marker>("lookahead", 10);
+        this->create_publisher<visualization_msgs::msg::Marker>(
+            "motion_planning/lookahead", 10);
     drive_publisher_ =
         this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>(
             drive_topic_, 1);
@@ -674,7 +697,7 @@ void RRT::initialize_ros_interfaces()
 
 void RRT::initialize_visualization()
 {
-    const auto make_color = [](const std::vector<double>& rgb)
+    const auto make_rgb_color = [](const std::vector<double>& rgb)
         {
             std_msgs::msg::ColorRGBA color;
             color.r = static_cast<float>(rgb.at(0));
@@ -683,10 +706,25 @@ void RRT::initialize_visualization()
             color.a = 1.0;
             return color;
         };
+    const auto make_rgba_color = [](const std::vector<double>& rgba)
+        {
+            std_msgs::msg::ColorRGBA color;
+            color.r = static_cast<float>(rgba.at(0));
+            color.g = static_cast<float>(rgba.at(1));
+            color.b = static_cast<float>(rgba.at(2));
+            color.a = static_cast<float>(rgba.at(3));
+            return color;
+        };
     const std_msgs::msg::ColorRGBA primary =
-        make_color(visualization_primary_color_);
+        make_rgb_color(visualization_primary_color_);
     const std_msgs::msg::ColorRGBA accent =
-        make_color(visualization_accent_color_);
+        make_rgb_color(visualization_accent_color_);
+    const std_msgs::msg::ColorRGBA global_trajectory =
+        make_rgba_color(visualization_global_trajectory_color_);
+    const std_msgs::msg::ColorRGBA tree_node =
+        make_rgba_color(visualization_tree_node_color_);
+    const std_msgs::msg::ColorRGBA tree_branch =
+        make_rgba_color(visualization_tree_branch_color_);
 
     goal_visualizer_ = std::make_unique<MarkerVisualizer>(
         goal_publisher_, "goal", map_frame_, primary, 0.3,
@@ -695,7 +733,8 @@ void RRT::initialize_visualization()
         lookahead_publisher_, "lookahead", map_frame_, accent, 0.2,
         visualization_msgs::msg::Marker::SPHERE);
     global_waypoints_visualizer_ = std::make_unique<PointsVisualizer>(
-        waypoint_publisher_, "global_waypoints", map_frame_, primary, 0.08);
+        waypoint_publisher_, "global_waypoints", map_frame_,
+        global_trajectory, 0.08);
     for (const auto& waypoint : global_waypoints_)
     {
         global_waypoints_visualizer_->add_point(waypoint);
@@ -721,8 +760,8 @@ void RRT::initialize_visualization()
     tree_nodes_.scale.y = 0.05;
     tree_nodes_.scale.z = 0.05;
     tree_branches_.scale.x = 0.01;
-    tree_nodes_.color = accent;
-    tree_branches_.color = primary;
+    tree_nodes_.color = tree_node;
+    tree_branches_.color = tree_branch;
 }
 
 void RRT::control_callback(const std_msgs::msg::String::ConstSharedPtr message)

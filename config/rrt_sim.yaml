@@ -29,7 +29,7 @@ launch:
         scan_topic: /scan
 
         # [P2] 本节点发布的融合动态地图；改名只影响订阅者和调试工具。
-        dynamic_map_topic: /ego_racecar/dynamic_map
+        dynamic_map_topic: motion_planning/dynamic_map
 
         # [P0] Ackermann 命令输出；必须指向本车，填错可能控制错误车辆或完全不动。
         drive_topic: /drive
@@ -55,9 +55,12 @@ launch:
         SPEED_MEDIUM_TURN: 3.0
         SPEED_SHARP_TURN: 1.5
 
-        # [P2][RGB 0..1] 路径/目标/RRT 分支主色与 lookahead/RRT 节点强调色；只影响 RViz。
+        # [P2] 保持原 ego 配色；PRIMARY/ACCENT 是 RGB，其余为 RGBA。
         VISUALIZATION_PRIMARY_COLOR: [0.10, 0.65, 1.00]
         VISUALIZATION_ACCENT_COLOR: [0.00, 1.00, 0.65]
+        VISUALIZATION_GLOBAL_TRAJECTORY_COLOR: [0.10, 0.65, 1.00, 1.00]
+        VISUALIZATION_TREE_NODE_COLOR: [0.00, 1.00, 0.65, 1.00]
+        VISUALIZATION_TREE_BRANCH_COLOR: [0.10, 0.65, 1.00, 1.00]
 
     # -------------------- opponent vehicle --------------------
     - namespace: opp_racecar
@@ -70,7 +73,7 @@ launch:
         map_topic: /map
         scan_topic: /opp_scan
         # [P2] 第二辆车动态地图输出，只影响观测/调试订阅者。
-        dynamic_map_topic: /opp_racecar/dynamic_map
+        dynamic_map_topic: motion_planning/dynamic_map
         # [P0] 第二辆车 Ackermann 输出和独立控制入口。
         drive_topic: /opp_drive
         control_topic: /opp_racecar/control
@@ -90,9 +93,12 @@ launch:
         SPEED_MEDIUM_TURN: 2.0
         SPEED_SHARP_TURN: 1.0
 
-        # [P2][RGB 0..1] 只影响 RViz，用不同颜色区分两辆车，不改变控制。
+        # [P2] 保持原 opponent 配色；只影响 RViz，不改变控制。
         VISUALIZATION_PRIMARY_COLOR: [1.00, 0.42, 0.05]
         VISUALIZATION_ACCENT_COLOR: [1.00, 0.05, 0.55]
+        VISUALIZATION_GLOBAL_TRAJECTORY_COLOR: [1.00, 0.42, 0.05, 1.00]
+        VISUALIZATION_TREE_NODE_COLOR: [1.00, 0.05, 0.55, 1.00]
+        VISUALIZATION_TREE_BRANCH_COLOR: [1.00, 0.42, 0.05, 1.00]
 
 rrt_node:
   ros__parameters:
