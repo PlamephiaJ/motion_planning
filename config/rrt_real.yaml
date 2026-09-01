@@ -75,7 +75,7 @@ rrt_node:
     #   ros2 launch motion_planning rrt_real.launch.py waypoint_file:=/path.csv
     # trajectory speed controller 必须使用 x,y,speed CSV；steering_band 可使用 x,y CSV。
     # 换文件会同时改变 optimal path、global goal 和 RRT detour 所关联的 nominal speed。
-    waypoint_file_path: '/home/jetsonblue/yuhao/vtc26_ws/map_process/map_20260827/map_20260827_clockwise_20260828_134542.csv'
+    waypoint_file_path: '/home/jetsonblue/yuhao/vtc26_ws/map_process/map_1788291473/map_1788291473_clockwise_20260901_131949.csv'
 
     # [P0][m] 静态地图障碍膨胀距离，必须 >= 0。
     # 调大：离墙更远但窄通道可能被封死；调小：可行空间增加但定位误差/擦墙余量减少。
@@ -83,7 +83,7 @@ rrt_node:
 
     # [P1][m] optimal trajectory 上的 global goal 前视距离，必须 > 0。
     # 调大：RRT 路径更长更连贯但搜索慢；调小：搜索容易但更短视、重规划更频繁。
-    DISTANCE_GOAL_AHEAD: 1.0
+    DISTANCE_GOAL_AHEAD: 2.0
 
     # [P1][m] 接受 LiDAR hit 的最大距离，必须 > 0。
     # 调大：高速下更早看到障碍但噪声/点数/CPU 增加；调小：地图干净但可能发现过晚。
@@ -91,7 +91,7 @@ rrt_node:
 
     # [P0][m] 动态障碍额外膨胀距离，必须 >= 0。
     # 调大：安全间距增加但绕行空间减少；调小：更易通过但对定位/检测误差更敏感。
-    DETECTED_OBS_MARGIN: 0.1
+    DETECTED_OBS_MARGIN: 0.20 # was 0.15
 
     # -------------------- LEGACY PURE PURSUIT 参数 --------------------
 
