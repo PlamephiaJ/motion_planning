@@ -93,6 +93,8 @@ rrt_node:
     # 调大：安全间距增加但绕行空间减少；调小：更易通过但对定位/检测误差更敏感。
     DETECTED_OBS_MARGIN: 0.1
 
+    # -------------------- LEGACY PURE PURSUIT 参数 --------------------
+
     # [P1][m] 仅 legacy_pure_pursuit 生效的固定 lookahead，必须 > 0。
     # 调大：平滑但切弯/纠偏慢；调小：跟线紧但可能振荡。先低速从大到小逐步收紧。
     DISTANCE_LOOK_AHEAD: 0.5
