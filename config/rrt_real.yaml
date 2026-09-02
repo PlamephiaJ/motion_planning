@@ -75,7 +75,7 @@ rrt_node:
     #   ros2 launch motion_planning rrt_real.launch.py waypoint_file:=/path.csv
     # trajectory speed controller 必须使用 x,y,speed CSV；steering_band 可使用 x,y CSV。
     # 换文件会同时改变 optimal path、global goal 和 RRT detour 所关联的 nominal speed。
-    waypoint_file_path: '/home/jetsonblue/yuhao/vtc26_ws/map_process/map_1788291473/map_1788291473_clockwise_20260901_131949.csv'
+    waypoint_file_path: '/home/jetsonblue/yuhao/vtc26_ws/map_process/map_20260902/map_20260902_counterclockwise_20260902_154036.csv'
 
     # [P0][m] 静态地图障碍膨胀距离，必须 >= 0。
     # 调大：离墙更远但窄通道可能被封死；调小：可行空间增加但定位误差/擦墙余量减少。

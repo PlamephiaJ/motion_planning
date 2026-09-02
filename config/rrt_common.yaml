@@ -117,7 +117,7 @@ rrt_node:
 
     # [P1][m] 零/低速基础 lookahead，必须 > 0 且 <= MAX_LOOKAHEAD。
     # 调大：转向平滑但切弯/纠偏慢、可能切内线；调小：跟线紧但转角抖动和过度修正增加。
-    PURE_PURSUIT_LOOKAHEAD: 1.5 # was 0.5
+    PURE_PURSUIT_LOOKAHEAD: 1.2 # was 1.5
 
     # [P1][s] lookahead 随速度增加的增益：lookahead = base + gain * speed，必须 >= 0。
     # 调大：高速更早看远、更平滑但更易切弯；调小：高速仍跟近点，响应快但可能振荡。
@@ -170,7 +170,7 @@ rrt_node:
 
     # [P0][m/s] trajectory controller 的最终硬速度上限，必须 > 0。
     # 调大：圈速和风险同时上升；调小：全局保守。首次实车应先调低，再逐步增加。
-    TRAJECTORY_SPEED_MAX: 6.0
+    TRAJECTORY_SPEED_MAX: 6.0 # was 3.0
 
     # [P1][0..1] 大转角时 steering speed scale 的下限。
     # 调大：急弯仍保留更多速度、风险高；调小：大转角减速更多。它不是最终最小车速。
