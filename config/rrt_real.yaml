@@ -75,7 +75,7 @@ rrt_node:
     #   ros2 launch motion_planning rrt_real.launch.py waypoint_file:=/path.csv
     # trajectory speed controller 必须使用 x,y,speed CSV；steering_band 可使用 x,y CSV。
     # 换文件会同时改变 optimal path、global goal 和 RRT detour 所关联的 nominal speed。
-    waypoint_file_path: '/home/jetsonblue/yuhao/vtc26_ws/map_process/map_20260902/map_20260902_counterclockwise_20260902_154036.csv'
+    waypoint_file_path: '/home/jetsonblue/yuhao/vtc26_ws/map_process/map_202609032/20260903_134404/map_202609032_clockwise.csv'
 
     # [P0][m] 静态地图障碍膨胀距离，必须 >= 0。
     # 调大：离墙更远但窄通道可能被封死；调小：可行空间增加但定位误差/擦墙余量减少。
@@ -97,7 +97,7 @@ rrt_node:
 
     # [P1][m] 仅 legacy_pure_pursuit 生效的固定 lookahead，必须 > 0。
     # 调大：平滑但切弯/纠偏慢；调小：跟线紧但可能振荡。先低速从大到小逐步收紧。
-    DISTANCE_LOOK_AHEAD: 0.5
+    DISTANCE_LOOK_AHEAD: 0.8
 
     # [P1] 仅 legacy_pure_pursuit 生效的转向比例增益，必须 > 0。
     # 调大：转向更激进、可能摆振；调小：平滑但易欠转。应与 DISTANCE_LOOK_AHEAD 联调。
